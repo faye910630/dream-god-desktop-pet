@@ -11,6 +11,7 @@ import json
 import math
 import os
 import random
+import shutil
 import sys
 import time
 
@@ -40,6 +41,28 @@ M = (214, 92, 110, 255)      # mouth inside
 RED = (255, 110, 140, 255)   # heart
 BLUE = (140, 196, 248, 255)
 BALL = (255, 160, 190, 255)
+WATER = (120, 180, 240, 255)
+STARLIGHT = (255, 250, 220, 255)
+
+# 無口對話庫（幾乎都是省略號，不連外網）
+LINES = {
+    "idle": ("……", "…………", "……嗯。", "……在。", "……。"),
+    "pat": ("……", "……嗯。", "…………", "……♥", "……不要。"),
+    "feed": ("……", "……甜。", "……糖。", "…………嗯。"),
+    "bath": ("……", "……水。", "…………", "……好了。"),
+    "play": ("……", "……接住了。", "…………", "……再一次。"),
+    "sleep": ("……", "……Zzz", "…………", "……夢。"),
+    "plant": ("……", "……種下了。", "…………"),
+    "meteor": ("……", "……流星。", "…………", "……願。"),
+    "hungry": ("……餓。", "……", "…………糖果。"),
+    "dirty": ("……澡。", "……", "…………"),
+    "bored": ("……無聊。", "……", "…………陪我。"),
+    "tired": ("……睏。", "……", "…………想睡。"),
+    "fly": ("……", "……飛。", "…………", "……風。"),
+    "game": ("……", "…………", "……好。", "……開始。"),
+    "chat": ("……", "…………", "……嗯。", "……在聽。", "……。",
+             "……雪。", "……宮殿。", "……你。", "……慢慢。"),
+}
 
 CW, CH = 44, 50   # character canvas
 OX, OY = 2, 12    # padding (room for bubbles / hearts)
@@ -347,7 +370,7 @@ def six_views():
 
 # ---- a moonflower (Ipomoea alba) that grows on the desktop:
 #      stage 0 seedling, 1 vine with a twisted bud, 2 open bloom, 3 bloom glowing at night
-FLW, FLH = 19, 26
+FLW, FLH = 28, 40
 LEAF, LEAF2, VINE = (120, 178, 120, 255), (88, 146, 100, 255), (150, 160, 110, 255)
 PETAL, PETAL2, STAR = (255, 255, 255, 255), (236, 240, 236, 255), (206, 230, 170, 255)
 
@@ -362,36 +385,36 @@ def heart_leaf(d, x, y, flip=False):
 def flower_frame(stage, glow=0):
     im = Image.new("RGBA", (FLW, FLH), T)
     d = ImageDraw.Draw(im)
-    cx = 9
-    top = (20, 12, 10, 10)[stage]
-    for y in range(top, FLH):
+    cx = FLW // 2
+    top = (28, 18, 16, 16)[stage]
+    for y in range(top, FLH - 1):
         d.point((cx + (1 if (y // 3) % 2 else 0), y), fill=VINE)
-    heart_leaf(d, cx - 5, 20)
-    heart_leaf(d, cx + 1, 18, flip=True)
+    heart_leaf(d, cx - 6, 30)
+    heart_leaf(d, cx + 1, 28, flip=True)
     if stage >= 1:
-        heart_leaf(d, cx - 5, 14)
-        heart_leaf(d, cx + 2, 12, flip=True)
+        heart_leaf(d, cx - 7, 22)
+        heart_leaf(d, cx + 2, 20, flip=True)
     if stage == 1:
         for i, (dx, dy) in enumerate(((0, 0), (0, -1), (1, -2), (0, -3), (0, -4), (1, -5), (0, -6))):
             d.point((cx + dx, top - 1 + dy), fill=PETAL if i % 2 else PETAL2)
         d.point((cx + 1, top - 3), fill=STAR)
     if stage >= 2:
-        fy = top - 5
+        fy = top - 4
         if stage == 3:
             g = Image.new("RGBA", (FLW, FLH), T)
-            ImageDraw.Draw(g).ellipse([cx - 9, fy - 9, cx + 9, fy + 9], fill=(220, 238, 255, 60 + 50 * glow))
+            ImageDraw.Draw(g).ellipse([cx - 10, fy - 10, cx + 10, fy + 10], fill=(220, 238, 255, 60 + 50 * glow))
             im.alpha_composite(g)
             d = ImageDraw.Draw(im)
-        d.ellipse([cx - 6, fy - 6, cx + 6, fy + 6], fill=PETAL)
+        d.ellipse([cx - 7, fy - 7, cx + 7, fy + 7], fill=PETAL)
         for ang in range(5):
             a_ = math.radians(ang * 72 - 90 + 36)
-            d.point((round(cx + 6 * math.cos(a_)), round(fy + 6 * math.sin(a_))), fill=PETAL2)
+            d.point((round(cx + 7 * math.cos(a_)), round(fy + 7 * math.sin(a_))), fill=PETAL2)
         for ang in range(5):
             a_ = math.radians(ang * 72 - 90)
-            for r in range(1, 6):
+            for r in range(1, 7):
                 d.point((round(cx + r * math.cos(a_)), round(fy + r * math.sin(a_))), fill=STAR)
         d.point((cx, fy), fill=(240, 236, 160, 255))
-        for dx, dy in ((-3, -3), (3, -2), (-2, 3)):
+        for dx, dy in ((-3, -3), (3, -2), (-2, 3), (4, 1), (-4, 0)):
             d.point((cx + dx, fy + dy), fill=PETAL2)
     src = im.copy()
     sp, op = src.load(), im.load()
@@ -411,14 +434,21 @@ def deco(im, kind, t=0):
     im = im.copy()
     d = ImageDraw.Draw(im)
     pt = lambda x, y, c: d.point((x + OX, y + OY), fill=c)
-    if kind == "food":        # rice ball in her raised hand
-        for x, y in ((36, 21), (35, 22), (36, 22), (37, 22), (34, 23), (35, 23), (36, 23), (37, 23), (38, 23),
-                     (34, 24), (35, 24), (36, 24), (37, 24), (38, 24)):
+    if kind == "food":        # 白色包裝糖（扭糖紙）
+        # 中間糖身
+        for x, y in ((35, 22), (36, 22), (37, 22), (34, 23), (35, 23), (36, 23), (37, 23), (38, 23),
+                     (34, 24), (35, 24), (36, 24), (37, 24), (38, 24), (35, 25), (36, 25), (37, 25)):
             pt(x, y, W)
-        for x in (35, 36, 37):
-            pt(x, 25, LN2); pt(x, 24, LN2)
-        if t:
-            pt(24, 29, W); pt(26, 28, W)
+        # 細線與高光
+        pt(36, 23, (236, 236, 244, 255)); pt(36, 24, LN2)
+        # 兩側扭結糖紙
+        for x, y in ((32, 23), (33, 22), (33, 24), (31, 23)):
+            pt(x, y, W)
+        for x, y in ((39, 22), (40, 23), (39, 24), (41, 23)):
+            pt(x, y, W)
+        pt(33, 23, (220, 220, 230, 255)); pt(39, 23, (220, 220, 230, 255))
+        if t:   # 咬一口／掉屑
+            pt(24, 29, W); pt(25, 28, W); pt(26, 29, (236, 236, 244, 255))
     elif kind == "bubbles":
         spots = [(3, 24), (40, 18), (4, 40), (40, 38), (22, 0)] if t == 0 else [(5, 18), (41, 26), (2, 34), (38, 44), (16, 1)]
         for x, y in spots:
@@ -430,6 +460,15 @@ def deco(im, kind, t=0):
         pt(20, by + 1, W)
     elif kind == "sweat":
         pt(35, 14, BLUE); pt(35, 15, BLUE); pt(36, 15, BLUE)
+    elif kind == "water":
+        can = [(34, 18), (35, 18), (36, 18), (37, 18), (33, 19), (34, 19), (35, 19), (36, 19), (37, 19), (38, 19),
+               (33, 20), (34, 20), (35, 20), (36, 20), (37, 20), (38, 20), (39, 19), (40, 18)]
+        for x, y in can:
+            pt(x, y - t, (210, 214, 222, 255))
+        pt(34, 18 - t, LN2); pt(38, 18 - t, LN2)
+        drops = [(38, 22), (40, 26), (39, 30)] if t == 0 else [(39, 24), (41, 28), (38, 32)]
+        for x, y in drops:
+            pt(x, y, WATER); pt(x, y + 1, BLUE)
     elif kind.startswith("need_"):
         layer = Image.new("RGBA", im.size, T)
         d = ImageDraw.Draw(layer)
@@ -437,8 +476,9 @@ def deco(im, kind, t=0):
         d.point((31, 9), fill=K); d.point((32, 9), fill=K); d.point((31, 10), fill=K)
         icon = kind[5:]
         pts = {
-            "food": ([(34, 2), (33, 3), (34, 3), (35, 3), (32, 4), (33, 4), (34, 4), (35, 4), (36, 4)], G,
-                     [(33, 5), (34, 5), (35, 5), (33, 6), (34, 6), (35, 6)], K),
+            "food": ([(33, 3), (34, 3), (35, 3), (36, 3), (32, 4), (33, 4), (34, 4), (35, 4), (36, 4), (37, 4),
+                      (33, 5), (34, 5), (35, 5), (36, 5), (31, 4), (38, 4)], W,
+                     [(34, 4), (35, 4)], LN2),
             "bath": ([(34, 2), (34, 3), (33, 4), (34, 4), (35, 4), (33, 5), (34, 5), (35, 5), (34, 6)], BLUE, [], K),
             "play": ([(32, 3), (33, 3), (35, 3), (36, 3), (32, 4), (33, 4), (34, 4), (35, 4), (36, 4),
                       (33, 5), (34, 5), (35, 5), (34, 6)], RED, [], K),
@@ -509,32 +549,61 @@ def draw_legs(base, lift_l=0, lift_r=0):
             pp[x, bottom] = O
 
 
-def from_base(eyes="open", bob=0, sway=0, fx=None, flip=False, side=False):
-    """Her sprite exactly as drawn, plus small overlays (hearts, zzz) and offsets."""
+def paint_wings(out, phase=0, side=False):
+    """半透明感的白色翅膀（實心淡白，適配透明色鍵）。"""
+    layer = Image.new("RGBA", out.size, T)
+    d = ImageDraw.Draw(layer)
+    flap = phase % 2
+    w1, w2, vein = (244, 250, 255, 210), (220, 236, 252, 170), (190, 214, 240, 200)
+    if side:
+        # 側面：翅膀在背後（左側）
+        up = [(14, 28 + OY), (2, 18 + OY - flap), (0, 26 + OY), (4, 34 + OY + flap), (13, 33 + OY)]
+        lo = [(14, 33 + OY), (3, 36 + OY), (2, 42 + OY + flap), (8, 43 + OY), (13, 36 + OY)]
+        for poly in (up, lo):
+            d.polygon(poly, fill=w1)
+            d.line([poly[0], poly[2]], fill=vein)
+    else:
+        for mirror in (False, True):
+            f = (lambda x: FW - 1 - x) if mirror else (lambda x: x)
+            up = [(13, 28 + OY), (1, 18 + OY - flap), (0, 26 + OY), (3, 34 + OY + flap), (12, 33 + OY)]
+            lo = [(13, 33 + OY), (2, 36 + OY), (2, 42 + OY + flap), (8, 43 + OY), (12, 36 + OY)]
+            for poly in (up, lo):
+                pts = [(f(x), y) for x, y in poly]
+                d.polygon(pts, fill=w1 if not flap else w2)
+                d.line([pts[0], pts[2]], fill=vein)
+    out.alpha_composite(layer)
+    return out
+
+
+def from_base(eyes="open", bob=0, sway=0, fx=None, flip=False, side=False, wing=0):
+    """Her sprite exactly as drawn, plus wings / overlays and offsets."""
     base = side_base() if side else Image.open(BASE_FILE).convert("RGBA")
     draw_legs(base)
     if eyes != "open":
         pxl = base.load()
         LID, LINE = (214, 208, 218, 255), (160, 150, 164, 255)
-        for x0, x1 in ((14, 19), (24, 30)):                 # her two eyes in this sprite
+        eye_ranges = ((30, 36),) if side else ((14, 19), (24, 30))
+        for x0, x1 in eye_ranges:
             for x in range(x0, x1 + 1):
                 for y in range(23, 27):
-                    if pxl[x, y][3]:
+                    if 0 <= x < CW and pxl[x, y][3]:
                         pxl[x, y] = LID
             if eyes == "closed":
                 for x in range(x0, x1 + 1):
-                    pxl[x, 25] = LINE
+                    if 0 <= x < CW:
+                        pxl[x, 25] = LINE
             elif eyes == "happy":
                 w = x1 - x0
                 for i in range(w + 1):
-                    pxl[x0 + i, 24 + abs(i - w / 2) // 2 if False else x0 + i, 0] if False else None
-                for i in range(w + 1):
                     yy = 26 - min(i, w - i) // 1 if min(i, w - i) < 2 else 24
-                    pxl[x0 + i, int(yy)] = LINE
+                    if 0 <= x0 + i < CW:
+                        pxl[x0 + i, int(yy)] = LINE
     draw_legs(base, lift_l=1 if sway > 0 else 0, lift_r=1 if sway < 0 else 0)
     if flip:
         base = base.transpose(Image.FLIP_LEFT_RIGHT)
     out = Image.new("RGBA", (FW, FH), T)
+    # 翅膀在身後（哥德裝也保留淡白夢翼）
+    paint_wings(out, phase=wing, side=side)
     out.alpha_composite(base, (OX, OY + bob))
     od = ImageDraw.Draw(out)
     heart = ((0, 0), (1, 0), (3, 0), (4, 0), (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (1, 2), (2, 2), (3, 2), (2, 3))
@@ -549,73 +618,203 @@ def from_base(eyes="open", bob=0, sway=0, fx=None, flip=False, side=False):
     return out
 
 
+def lie_frame(phase=0):
+    """側躺睡覺：把立繪旋轉後放在畫布底部，加上枕頭與 Zzz。"""
+    base = Image.open(BASE_FILE).convert("RGBA")
+    pxl = base.load()
+    lid, line = (214, 208, 218, 255), (160, 150, 164, 255)
+    for x0, x1 in ((14, 19), (24, 30)):
+        for x in range(x0, x1 + 1):
+            for y in range(23, 27):
+                if pxl[x, y][3]:
+                    pxl[x, y] = lid
+        for x in range(x0, x1 + 1):
+            pxl[x, 25] = line
+    rot = base.rotate(90, expand=True, resample=Image.NEAREST)
+    out = Image.new("RGBA", (FW, FH), T)
+    od = ImageDraw.Draw(out)
+    pillow = [(6, FH - 14), (7, FH - 15), (8, FH - 15), (9, FH - 15), (10, FH - 15), (11, FH - 15),
+              (12, FH - 15), (13, FH - 14), (6, FH - 13), (7, FH - 13), (8, FH - 13), (9, FH - 13),
+              (10, FH - 13), (11, FH - 13), (12, FH - 13), (13, FH - 13)]
+    for x, y in pillow:
+        od.point((x, y), fill=W)
+    for x in range(6, 14):
+        od.point((x, FH - 12), fill=(232, 228, 238, 255))
+    rx = max(0, (FW - rot.width) // 2)
+    ry = FH - rot.height
+    out.alpha_composite(rot, (rx, ry + (1 if phase else 0)))
+    od = ImageDraw.Draw(out)
+    zx, zy = (FW - 12, 8) if phase == 0 else (FW - 9, 3)
+    for x, y in ((0, 0), (1, 0), (2, 0), (2, 1), (1, 2), (0, 3), (0, 4), (1, 4), (2, 4)):
+        od.point((zx + x, zy + y), fill=(96, 86, 100, 255))
+    return out
+
+
 def build_frames():
     f = {}
     for w in (0, 1):
-        idle = from_base(bob=0)
-        f[f"idle{w}"] = from_base(bob=w)
-        f[f"blink{w}"] = from_base(bob=w)
-        f[f"walk{w}"] = from_base(bob=-w, sway=1 if w else -1)
-        f[f"happy{w}"] = from_base(bob=-2 * w, fx="heart")
-        f[f"carry{w}"] = from_base(bob=0, sway=w)
-        f[f"sleep{w}"] = from_base(fx="z1" if w == 0 else "z2")
-        f[f"smile{w}"] = from_base(bob=w)
-        f[f"eat{w}"] = deco(from_base(bob=w), "food", w)
-        f[f"bath{w}"] = deco(from_base(bob=w), "bubbles", w)
-        f[f"play{w}"] = deco(from_base(bob=-2 * w), "ball", w)
-        f[f"sad{w}"] = deco(from_base(), "sweat")
-        f[f"climb{w}"] = from_base(bob=-w, sway=1 if w else -1)
+        idle = from_base(bob=0, wing=w)
+        f[f"idle{w}"] = from_base(bob=w, wing=w)
+        f[f"blink{w}"] = from_base(bob=w, wing=w)
+        f[f"walk{w}"] = from_base(bob=-w, sway=1 if w else -1, wing=w)
+        f[f"happy{w}"] = from_base(bob=-2 * w, fx="heart", wing=w)
+        f[f"carry{w}"] = from_base(bob=0, sway=w, wing=w)
+        f[f"sleep{w}"] = lie_frame(w)
+        f[f"smile{w}"] = from_base(bob=w, wing=w)
+        f[f"eat{w}"] = deco(from_base(bob=w, wing=w), "food", w)
+        f[f"bath{w}"] = deco(from_base(bob=w, wing=w), "bubbles", w)
+        f[f"play{w}"] = deco(from_base(bob=-2 * w, wing=w), "ball", w)
+        f[f"sad{w}"] = deco(from_base(wing=w), "sweat")
+        f[f"climb{w}"] = from_base(bob=-w, sway=1 if w else -1, wing=w)
+        f[f"fly{w}"] = from_base(bob=-2 - w, wing=w)
+        f[f"water{w}"] = deco(from_base(bob=w, sway=1 if w else 0, wing=w), "water", w)
         for need in ("food", "bath", "play", "sleep"):
             f[f"need_{need}{w}"] = deco(idle, "need_" + need)
-        f[f"plant{w}"] = from_base(bob=1)
+        f[f"plant{w}"] = from_base(bob=1, wing=w)
     for p in range(4):
-        f[f"side{p}"] = from_base(bob=-(p % 2), sway=(0, 1, 0, -1)[p])
-    f["turn0"] = from_base()
+        f[f"side{p}"] = from_base(bob=-(p % 2), sway=(0, 1, 0, -1)[p], wing=p % 2)
+    f["turn0"] = from_base(wing=0)
     return f
 
 
-# ---------------------------------------------------------------- moonflower valley (her home scene)
+# ---------------------------------------------------------------- moonflower valley / snowing white palace
 def valley(fr, w=180, h=100, t=0):
-    rnd = random.Random(7)
+    """舊版月光花谷（匯出與相容用）。"""
+    return dream_house(fr, w, h, t)
+
+
+def _palace_tower(d, x, y, tw, th, spire=14, warm=False):
+    """一座積雪白塔：塔身、雪檐、尖頂。"""
+    wall, shade, snow, line = (248, 248, 252, 255), (228, 228, 238, 255), (255, 255, 255, 255), (186, 186, 204, 255)
+    d.rectangle([x, y, x + tw, y + th], fill=wall)
+    d.rectangle([x + tw - 3, y, x + tw, y + th], fill=shade)
+    # snowy battlement / eaves
+    d.rectangle([x - 2, y + 6, x + tw + 2, y + 9], fill=snow)
+    d.line([(x - 2, y + 9), (x + tw + 2, y + 9)], fill=line)
+    # windows
+    for wy in (y + 14, y + 28, y + 42):
+        if wy + 8 >= y + th - 4:
+            break
+        wx = x + tw // 2 - 2
+        fill = (255, 236, 190, 255) if warm else (186, 210, 240, 255)
+        d.rectangle([wx, wy, wx + 4, wy + 6], fill=fill)
+        d.point((wx + 1, wy + 1), fill=(255, 255, 240, 255))
+    # spire
+    tip = [(x + tw // 2, y - spire), (x - 1, y + 7), (x + tw + 1, y + 7)]
+    d.polygon(tip, fill=snow)
+    d.line([tip[0], tip[1]], fill=line)
+    d.line([tip[0], tip[2]], fill=line)
+    d.point((x + tw // 2, y - spire), fill=(255, 250, 230, 255))
+
+
+def dream_house(fr, w=220, h=120, t=0, meteor=None):
+    """下雪的白色宮殿：夜空、多座雪塔、暖窗、飄雪，可疊流星。"""
+    rnd = random.Random(11)
     im = Image.new("RGBA", (w, h), (0, 0, 0, 255))
     d = ImageDraw.Draw(im)
-    top, bot = (26, 28, 66), (88, 70, 130)
+    top, bot = (28, 34, 72), (150, 162, 198)
     for y in range(h):
         k = y / h
         d.line([(0, y), (w, y)], fill=tuple(int(a + (b - a) * k) for a, b in zip(top, bot)) + (255,))
-    for _ in range(60):                                         # stars
-        x, y = rnd.randrange(w), rnd.randrange(int(h * 0.55))
-        tw = (x * 7 + y * 3 + t) % 9
-        d.point((x, y), fill=(255, 255, 230, 255) if tw else (190, 190, 230, 255))
-    d.ellipse([w - 40, 8, w - 22, 26], fill=(255, 250, 220, 255))   # moon + glow
-    d.ellipse([w - 35, 9, w - 21, 23], fill=(232, 226, 210, 255))
-    d.ellipse([w - 36, 10, w - 22, 24], fill=(255, 250, 220, 255))
-    hills = [(0.50, (52, 60, 108)), (0.62, (44, 74, 104)), (0.74, (36, 84, 96))]
-    for base, col in hills:
-        ph = rnd.random() * 6
-        pts = [(x, int(h * base + 6 * math.sin(x / 23 + ph) + 3 * math.sin(x / 9 + ph))) for x in range(0, w + 1, 2)]
-        d.polygon(pts + [(w, h), (0, h)], fill=col + (255,))
-    for _ in range(46):                                         # moonflowers on vines
-        x = rnd.randrange(3, w - 3)
-        y = rnd.randrange(int(h * 0.60), h - 3)
-        big = rnd.random() < 0.35
-        r = 3 if big else 2
-        glow = Image.new("RGBA", (r * 4 + 1, r * 4 + 1), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse([0, 0, r * 4, r * 4], fill=(220, 240, 255, 46))
-        im.alpha_composite(glow, (x - r * 2, y - r * 2))
-        lx_ = x + (3 if rnd.random() < 0.5 else -6)              # a little heart leaf
-        for dx, dy in ((0, 0), (1, 0), (3, 0), (4, 0), (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (1, 2), (2, 2), (3, 2), (2, 3)):
-            d.point((lx_ + dx, y + 1 + dy), fill=(86, 150, 104, 255))
-        d.line([(x, y + r), (x, min(h - 1, y + r + 4))], fill=(96, 140, 96, 255))
+    for _ in range(55):
+        x, y = rnd.randrange(w), rnd.randrange(int(h * 0.50))
+        tw = (x * 7 + y * 3 + t) % 10
+        d.point((x, y), fill=STARLIGHT if tw else (190, 198, 230, 255))
+    # soft moon
+    d.ellipse([w - 48, 4, w - 22, 30], fill=(255, 250, 235, 55))
+    d.ellipse([w - 44, 8, w - 26, 26], fill=(255, 252, 240, 255))
+    d.ellipse([w - 40, 10, w - 30, 20], fill=(236, 236, 228, 255))
+    d.ellipse([w - 42, 10, w - 28, 24], fill=(255, 252, 240, 255))
+    # snow ground
+    ground_y = int(h * 0.78)
+    d.polygon([(0, ground_y + 6), (w, ground_y + 2), (w, h), (0, h)], fill=(214, 220, 236, 255))
+    d.polygon([(0, ground_y), (w, ground_y - 4), (w, ground_y + 8), (0, ground_y + 10)], fill=(242, 246, 252, 255))
+    for i in range(0, w, 3):
+        d.point((i, ground_y - 1 + (i // 7) % 2), fill=(255, 255, 255, 255))
+    # distant snow hills
+    for base, col in ((0.62, (170, 184, 214)), (0.70, (198, 208, 228))):
+        ph = rnd.random() * 4
+        pts = [(x, int(h * base + 4 * math.sin(x / 28 + ph))) for x in range(0, w + 1, 4)]
+        d.polygon(pts + [(w, ground_y + 2), (0, ground_y + 2)], fill=col + (255,))
+
+    # ---- palace silhouette (back to front)
+    wall, shade, snow, line = (250, 250, 254, 255), (230, 232, 242, 255), (255, 255, 255, 255), (180, 184, 204, 255)
+    # main keep
+    hx, hy, hw, hh = w // 2 - 42, ground_y - 48, 84, 50
+    d.rectangle([hx, hy + 10, hx + hw, hy + hh], fill=wall)
+    d.rectangle([hx + hw - 4, hy + 10, hx + hw, hy + hh], fill=shade)
+    # snow roof ridge over keep
+    roof = [(hx - 4, hy + 14), (hx + hw // 2, hy - 8), (hx + hw + 4, hy + 14)]
+    d.polygon(roof, fill=snow)
+    d.line([roof[0], roof[1], roof[2]], fill=line)
+    d.rectangle([hx - 3, hy + 12, hx + hw + 3, hy + 16], fill=snow)
+    # grand door
+    door_x = hx + hw // 2
+    d.rectangle([door_x - 7, hy + 28, door_x + 7, hy + hh], fill=(196, 178, 160, 255))
+    d.arc([door_x - 7, hy + 20, door_x + 7, hy + 36], 180, 0, fill=(196, 178, 160, 255))
+    d.rectangle([door_x - 6, hy + 28, door_x + 6, hy + hh - 1], fill=(170, 150, 132, 255))
+    d.point((door_x + 3, hy + 40), fill=(255, 236, 180, 255))
+    # warm arched windows on keep
+    for wx in (hx + 10, hx + 22, hx + hw - 28, hx + hw - 16):
+        d.rectangle([wx, hy + 22, wx + 6, hy + 34], fill=(255, 236, 190, 255))
+        d.arc([wx, hy + 18, wx + 6, hy + 26], 180, 0, fill=(255, 236, 190, 255))
+        glow = Image.new("RGBA", (14, 18), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse([0, 0, 13, 17], fill=(255, 236, 180, 45))
+        im.alpha_composite(glow, (wx - 4, hy + 16))
+        d = ImageDraw.Draw(im)
+    # side towers
+    _palace_tower(d, hx - 22, ground_y - 62, 18, 64, spire=16, warm=True)
+    _palace_tower(d, hx + hw + 4, ground_y - 58, 16, 60, spire=14, warm=True)
+    # center tall spire
+    _palace_tower(d, door_x - 8, ground_y - 78, 16, 40, spire=20, warm=False)
+    # balcony snow rail
+    d.rectangle([hx + 18, hy + 18, hx + hw - 18, hy + 20], fill=snow)
+    for bx in range(hx + 20, hx + hw - 18, 6):
+        d.point((bx, hy + 17), fill=line)
+    # moonflowers in snow (small white blooms)
+    for i in range(14):
+        x = rnd.randrange(6, w - 6)
+        y = rnd.randrange(ground_y - 1, h - 3)
+        r = 2 if rnd.random() < 0.6 else 3
         d.ellipse([x - r, y - r, x + r, y + r], fill=(252, 253, 255, 255))
-        if big:
-            for ang in range(5):
-                a_ = math.radians(ang * 72 - 90)
-                for rr in (1, 2):
-                    d.point((round(x + rr * math.cos(a_)), round(y + rr * math.sin(a_))), fill=(206, 230, 170, 255))
         d.point((x, y), fill=(206, 230, 170, 255))
-    if fr is not None:                                          # the fairy standing in the valley
-        im.alpha_composite(fr, (w // 2 - FW // 2, h - FH - 2))
+        d.line([(x, y + r), (x, min(h - 1, y + r + 2))], fill=(120, 150, 120, 255))
+    # falling snow (animated by t)
+    snow_rnd = random.Random(3)
+    for i in range(70):
+        sx = (snow_rnd.randrange(w) + t * (1 + i % 3)) % w
+        sy = (snow_rnd.randrange(h) + t * (1 + (i % 2))) % h
+        size = 1 + (i % 3 == 0)
+        col = (255, 255, 255, 220) if i % 4 else (230, 238, 255, 180)
+        if size == 1:
+            d.point((int(sx), int(sy)), fill=col)
+        else:
+            d.point((int(sx), int(sy)), fill=col)
+            d.point((int(sx) + 1, int(sy)), fill=col)
+            d.point((int(sx), int(sy) + 1), fill=(255, 255, 255, 140))
+    # meteor streak
+    if meteor is not None:
+        mx, my, age = meteor
+        for i in range(10):
+            a = max(0, 200 - i * 18)
+            d.point((int(mx - i * 2), int(my + i * 0.6)), fill=(255, 250, 230, a))
+        d.point((int(mx), int(my)), fill=(255, 255, 255, 255))
+        d.point((int(mx) + 1, int(my)), fill=(255, 240, 200, 220))
+    if fr is not None:
+        fr2 = fr.resize((FW * 2 // 3, FH * 2 // 3), Image.NEAREST) if fr.width > 20 else fr
+        im.alpha_composite(fr2, (door_x - fr2.width // 2, hy + hh - fr2.height + 2))
+    return im
+
+
+def meteor_sprite(frame=0):
+    """桌面流星小圖。"""
+    im = Image.new("RGBA", (28, 12), T)
+    d = ImageDraw.Draw(im)
+    for i in range(12):
+        a = max(0, 220 - i * 16)
+        d.point((20 - i * 2 + (frame % 2), 4 + i // 4), fill=(255, 250, 230, a))
+    d.ellipse([20, 2, 25, 7], fill=STARLIGHT)
+    d.point((22, 3), fill=W)
     return im
 
 
@@ -632,8 +831,75 @@ def export_sheet(frames, folder):
     sheet.save(os.path.join(folder, "spritesheet.png"))
     with open(os.path.join(folder, "spritesheet.json"), "w", encoding="utf-8") as fp:
         json.dump(meta, fp, indent=1)
-    valley(None).save(os.path.join(folder, "valley.png"))
+    dream_house(None).save(os.path.join(folder, "valley.png"))
     return sheet
+
+
+# ---------------------------------------------------------------- autostart (Windows Startup folder)
+def _startup_vbs_path():
+    return os.path.join(
+        os.environ.get("APPDATA", os.path.expanduser("~")),
+        r"Microsoft\Windows\Start Menu\Programs\Startup",
+        "夢境神明桌寵.vbs",
+    )
+
+
+def autostart_enabled():
+    return os.path.isfile(_startup_vbs_path())
+
+
+def set_autostart(on):
+    path = _startup_vbs_path()
+    if not on:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+    here = os.path.dirname(os.path.abspath(__file__))
+    pyw = os.path.join(here, "fairy_pet.pyw")
+    pythonw = shutil.which("pythonw") or "pythonw"
+    body = (
+        'Option Explicit\n'
+        f'Dim sh: Set sh = CreateObject("WScript.Shell")\n'
+        f'sh.CurrentDirectory = "{here}"\n'
+        f'sh.Run """{pythonw}"" ""{pyw}""", 0, False\n'
+    )
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fp:
+            fp.write(body)
+        return True
+    except OSError:
+        return False
+
+
+def pick_line(kind):
+    return random.choice(LINES.get(kind, LINES["idle"]))
+
+
+# ---------------------------------------------------------------- pixel font (Cubic 11 / 俐方體11號)
+PIXEL_FONT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "Cubic_11.ttf")
+PIXEL_FONT_FAMILY = "俐方體11號"
+_FONT_LOADED = False
+
+
+def load_pixel_font():
+    """把專案內的像素字型私有載入給本行程使用（不寫入系統字型資料夾）。"""
+    global _FONT_LOADED
+    if _FONT_LOADED:
+        return PIXEL_FONT_FAMILY
+    if not os.path.isfile(PIXEL_FONT_FILE):
+        return "Microsoft JhengHei UI"
+    try:
+        import ctypes
+        FR_PRIVATE = 0x10
+        if ctypes.windll.gdi32.AddFontResourceExW(PIXEL_FONT_FILE, FR_PRIVATE, 0) > 0:
+            _FONT_LOADED = True
+            return PIXEL_FONT_FAMILY
+    except Exception:
+        pass
+    return "Microsoft JhengHei UI"
 
 
 # ---------------------------------------------------------------- care stats (saved between runs)
@@ -722,6 +988,7 @@ def list_windows(own):
 def run_pet(frames):
     import ctypes
     import tkinter as tk
+    import tkinter.font as tkfont
     from PIL import ImageTk
 
     try:
@@ -741,6 +1008,19 @@ def run_pet(frames):
     except Exception:
         dpi = 1.0
 
+    family = load_pixel_font()
+    # 像素字以接近原生 11px 的倍數較清晰
+    px = max(11, int(round(11 * dpi)))
+    font_sm = tkfont.Font(family=family, size=max(9, px - 2))
+    font_ui = tkfont.Font(family=family, size=px)
+    font_bd = tkfont.Font(family=family, size=px + 2)
+    root.option_add("*Font", font_ui)
+    root.option_add("*Menu.font", font_ui)
+    root.option_add("*Button.font", font_ui)
+    root.option_add("*Label.font", font_ui)
+    root.option_add("*Entry.font", font_ui)
+    root.option_add("*Text.font", font_sm)
+
     class RECT(ctypes.Structure):
         _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
     rr_ = RECT()
@@ -750,8 +1030,10 @@ def run_pet(frames):
     care = Care(os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "FairyPet", "save.json"))
     st = {"scale": max(2, round(2 * dpi)), "fx": area[0] + (area[2] - area[0]) * 0.75, "fy": float(area[3]),
           "dir": 1, "mode": "idle", "timer": 40, "tick": 0, "blink": 0, "lonely": 0, "walk": True,
-          "drag": None, "moved": False, "vy": 0.0, "target": None, "wins": [], "own": set(), "name": "idle0"}
+          "drag": None, "moved": False, "vy": 0.0, "target": None, "wins": [], "own": set(), "name": "idle0",
+          "bubble": None, "bubble_ttl": 0, "meteors": [], "panel_meteor": None, "chat_log": []}
     cache = {}
+    mcache = {}
 
     def img(name):
         key = (name, st["scale"], st["dir"])
@@ -761,7 +1043,7 @@ def run_pet(frames):
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)
             im = im.resize((FW * st["scale"], FH * st["scale"]), Image.NEAREST)
             bg = Image.new("RGB", im.size, (255, 0, 254))
-            bg.paste(im.convert("RGB"), (0, 0), im.getchannel("A").point(lambda v: 255 if v >= 100 else 0))
+            bg.paste(im.convert("RGB"), (0, 0), im.getchannel("A").point(lambda v: 255 if v >= 40 else 0))
             cache[key] = ImageTk.PhotoImage(bg)
         return cache[key]
 
@@ -839,6 +1121,78 @@ def run_pet(frames):
     def set_mode(m, t):
         st["mode"], st["timer"] = m, t
 
+    def say(kind, ttl=70, text=None):
+        """在她頭上冒出一句話。"""
+        text = text if text is not None else pick_line(kind)
+        st["bubble_ttl"] = ttl
+        bw = tk.Toplevel(root)
+        bw.overrideredirect(True)
+        bw.attributes("-topmost", True)
+        bw.configure(bg="#fff8fc")
+        tk.Label(bw, text=text, bg="#fff8fc", fg="#4a3c4e",
+                 font=font_sm, padx=8, pady=4).pack()
+        if st["bubble"] is not None:
+            try:
+                st["bubble"].destroy()
+            except Exception:
+                pass
+        st["bubble"] = bw
+        place_bubble()
+        return text
+
+    def place_bubble():
+        bw = st["bubble"]
+        if bw is None:
+            return
+        try:
+            if not bw.winfo_exists():
+                st["bubble"] = None
+                return
+            bw.update_idletasks()
+            bx = int(st["fx"] - bw.winfo_reqwidth() / 2)
+            by = int(st["fy"] - FEET * st["scale"] - bw.winfo_reqheight() - 8)
+            bw.geometry(f"+{bx}+{by}")
+        except Exception:
+            pass
+
+    def mimg(frame):
+        key = (frame, st["scale"])
+        if key not in mcache:
+            im = meteor_sprite(frame).resize((28 * st["scale"], 12 * st["scale"]), Image.NEAREST)
+            bg = Image.new("RGB", im.size, (255, 0, 254))
+            bg.paste(im.convert("RGB"), (0, 0), im.getchannel("A").point(lambda v: 255 if v >= 40 else 0))
+            mcache[key] = ImageTk.PhotoImage(bg)
+        return mcache[key]
+
+    def spawn_meteor():
+        if len(st["meteors"]) >= 3:
+            return
+        y = random.randint(area[1] + 40, max(area[1] + 80, area[3] - 220))
+        x = float(area[0] - 20)
+        mw = tk.Toplevel(root)
+        mw.overrideredirect(True)
+        mw.attributes("-topmost", True)
+        mw.configure(bg=KEY)
+        mw.attributes("-transparentcolor", KEY)
+        lb = tk.Label(mw, bg=KEY, bd=0, highlightthickness=0, cursor="hand2")
+        lb.pack()
+        meta = {"x": x, "y": y, "win": mw, "lbl": lb, "age": 0, "vx": 3.2 * st["scale"]}
+
+        def catch(_e, m=meta):
+            care.add(joy=6)
+            say("meteor", 50)
+            try:
+                st["meteors"].remove(m)
+                m["win"].destroy()
+            except Exception:
+                pass
+            set_mode("happy", 24)
+            care.save()
+
+        lb.bind("<Button-1>", catch)
+        st["meteors"].append(meta)
+        st["panel_meteor"] = (40, 20, 0)
+
     def refresh_windows():
         try:
             st["wins"] = list_windows(st["own"])
@@ -854,29 +1208,38 @@ def run_pet(frames):
                     best = p
         return best
 
+    def nearest_flower():
+        if not garden:
+            return None
+        return min(garden, key=lambda g: abs(g["x"] - st["fx"]))
+
     def choose_next():
         n = care.need()
         if care.v["energy"] < 12:
-            set_mode("sleep", 10 ** 9); return
+            set_mode("sleep", 10 ** 9); say("tired", 60); return
         if n and random.random() < 0.5:
             set_mode("need", random.randint(40, 80)); return
         roll = random.random()
-        if st["walk"] and roll < 0.3:
+        # 更常去爬視窗
+        if st["walk"] and roll < 0.42:
             p = support()
             cands = []
             for h, l, t, r, b in st["wins"]:
-                if area[1] + 20 < t < st["fy"] - 60 and b >= st["fy"] - 14:
+                if area[1] + 20 < t < st["fy"] - 40 and b >= st["fy"] - 20:
                     for side_x, face in ((l - 2, 1), (r + 2, -1)):
-                        if p and p[1] <= side_x <= p[3]:
+                        if p and p[1] - 8 <= side_x <= p[3] + 8:
                             cands.append((h, side_x, face))
             if cands:
                 st["target"] = random.choice(cands)
                 set_mode("goto", 900); return
         p0 = support()
-        if roll > 0.9 and p0 and p0[0] is None and care.v["joy"] > 40 and len(garden) < 14:
+        if roll > 0.78 and roll <= 0.88 and p0:
+            st["dir"] = random.choice((-1, 1))
+            set_mode("fly", random.randint(80, 160)); say("fly", 40); return
+        if roll > 0.90 and p0 and p0[0] is None and care.v["joy"] > 40 and len(garden) < 14:
             set_mode("plant", 50); return
-        if st["walk"] and roll < 0.7:
-            st["dir"] = random.choice((-1, 1)); st["turning"] = 4; set_mode("walk", random.randint(40, 140))
+        if st["walk"] and roll < 0.72:
+            st["dir"] = random.choice((-1, 1)); st["turning"] = 6; set_mode("walk", random.randint(60, 180))
         elif roll < 0.85:
             set_mode("smile", random.randint(25, 50))
         else:
@@ -903,6 +1266,41 @@ def run_pet(frames):
                 set_mode("smile", 40)
         if n_ % 600 == 0:
             care.save()
+        # 偶爾流星劃過桌面
+        if n_ % 80 == 0 and random.random() < 0.18:
+            spawn_meteor()
+        alive = []
+        for m in st["meteors"]:
+            m["age"] += 1
+            m["x"] += m["vx"]
+            m["y"] += 0.55 * s
+            try:
+                m["lbl"].configure(image=mimg(m["age"] // 2))
+                m["win"].geometry(f"+{int(m['x'])}+{int(m['y'])}")
+            except Exception:
+                continue
+            if m["x"] < area[2] + 40 and m["y"] < area[3]:
+                alive.append(m)
+            else:
+                try:
+                    m["win"].destroy()
+                except Exception:
+                    pass
+        st["meteors"] = alive
+        if st["panel_meteor"] is not None:
+            mx, my, age = st["panel_meteor"]
+            st["panel_meteor"] = (mx + 3.5, my + 1.1, age + 1)
+            if age > 40:
+                st["panel_meteor"] = None
+        if st["bubble_ttl"] > 0:
+            st["bubble_ttl"] -= 1
+            place_bubble()
+            if st["bubble_ttl"] <= 0 and st["bubble"] is not None:
+                try:
+                    st["bubble"].destroy()
+                except Exception:
+                    pass
+                st["bubble"] = None
         st["timer"] -= 1
         st["lonely"] += 1
         mode = st["mode"]
@@ -916,11 +1314,24 @@ def run_pet(frames):
                 st["target"] = None; set_mode("idle", 20)
             else:
                 st["fx"] = side_x - face * half() * 0.45
-                st["fy"] -= 1.4 * s
+                st["fy"] -= 1.0 * s
                 if st["fy"] <= w[2]:
                     st["fy"] = float(w[2]); st["fx"] = side_x + face * half() * 0.8
                     st["dir"] = face; st["target"] = None
-                    set_mode("walk", random.randint(30, 90))
+                    set_mode("walk", random.randint(50, 120))
+        elif mode == "fly":
+            # 離地緩緩飛，側面撲翅
+            hover = 18 * s + 4 * s * math.sin(n_ / 10)
+            base_y = float(area[3])
+            sup = support()
+            if sup:
+                base_y = float(sup[2])
+            st["fy"] = base_y - hover
+            st["fx"] += st["dir"] * 0.18 * s
+            if st["fx"] < area[0] + 20 or st["fx"] > area[2] - 20:
+                st["dir"] *= -1
+            if st["timer"] <= 0:
+                set_mode("idle", 30)
         else:
             sup = support()
             if sup is None:
@@ -932,7 +1343,7 @@ def run_pet(frames):
                         land = t if land is None else min(land, t)
                 if land is not None:
                     st["fy"], st["vy"] = float(land), 0.0
-                    if mode in ("carry", "climb", "goto"):
+                    if mode in ("carry", "climb", "goto", "fly"):
                         set_mode("idle", 30)
                 else:
                     st["fy"] = min(ny, float(area[3]))
@@ -942,21 +1353,22 @@ def run_pet(frames):
                 h, l, t, r = sup
                 st["fy"] = float(t)          # ride along when the window moves vertically
                 if st["lonely"] > 2400 and mode in ("idle", "walk", "smile", "need"):
-                    set_mode("sleep", 10 ** 9)
+                    set_mode("sleep", 10 ** 9); say("sleep", 50)
                 elif st["timer"] <= 0 and mode != "sleep":
                     if mode == "plant":
                         plant_flower(st["fx"] + st["dir"] * half() * 0.5)
+                        say("plant", 50)
                         set_mode("smile", 30)
-                    elif mode in ("eat", "bath", "play", "happy"):
+                    elif mode in ("eat", "bath", "play", "happy", "fly"):
                         set_mode("idle", 40)
                     else:
                         choose_next()
                 mode = st["mode"]
                 if mode == "walk":
-                    st["fx"] += st["dir"] * 0.45 * s
+                    st["fx"] += st["dir"] * 0.20 * s   # 走慢一點
                     if st["fx"] < l + 2 or st["fx"] > r - 2:
                         if h is not None and random.random() < 0.35:
-                            pass             # hop off the window edge
+                            pass
                         else:
                             st["fx"] = max(l + 2, min(r - 2, st["fx"])); st["dir"] *= -1
                 elif mode == "goto":
@@ -966,25 +1378,24 @@ def run_pet(frames):
                     else:
                         dx = tg[1] - tg[2] * half() * 0.45 - st["fx"]
                         st["dir"] = 1 if dx > 0 else -1
-                        if abs(dx) <= 0.6 * s:
+                        if abs(dx) <= 0.5 * s:
                             st["dir"] = tg[2]; set_mode("climb", 10 ** 9)
                         else:
-                            st["fx"] += st["dir"] * min(abs(dx), 0.6 * s)
+                            st["fx"] += st["dir"] * min(abs(dx), 0.32 * s)
                 mode = st["mode"]
 
         if st["blink"] > 0:
             st["blink"] -= 1
         elif random.random() < 0.012:
             st["blink"] = 3
-        if mode in ("walk", "goto") and st.get("turning", 0) > 0:
-            st["turning"] -= 1
-            name = "turn0"
-        elif mode in ("walk", "goto"):
-            name = f"side{(n_ // 3) % 4}"
+        if mode in ("walk", "goto"):
+            name = f"walk{(n_ // 5) % 2}"
         elif mode == "plant":
             name = f"plant{1 if (n_ // 10) % 4 == 3 else 0}"
         elif mode == "climb":
-            name = f"climb{(n_ // 4) % 2}"
+            name = f"climb{(n_ // 5) % 2}"
+        elif mode == "fly":
+            name = f"fly{(n_ // 3) % 2}"
         elif mode == "sleep":
             name = f"sleep{(n_ // 20) % 2}"
         elif mode in ("happy", "carry", "smile", "eat", "bath", "play"):
@@ -999,8 +1410,11 @@ def run_pet(frames):
         if mode in ("happy", "play"):
             ph = n_ % 12
             bob = -min(ph, 12 - ph)
+        if mode in ("sleep", "fly"):
+            bob = 0
         label.configure(image=img(name))
         root.geometry(f"+{int(st['fx'] - half())}+{int(st['fy'] - FEET * s + bob * s)}")
+        place_bubble()
 
     # ---- mouse
     def press(e):
@@ -1024,6 +1438,7 @@ def run_pet(frames):
         if not st["moved"]:
             care.add(joy=3)
             set_mode("happy", 24)
+            say("pat", 45)
         elif st["mode"] == "sleep":
             set_mode("idle", 40)
 
@@ -1035,67 +1450,274 @@ def run_pet(frames):
         if kind == "feed":
             if care.v["food"] >= 95:
                 set_mode("smile", 30)
+                say("feed", 40)
             else:
-                care.add(food=35, joy=4); set_mode("eat", 60)
+                care.add(food=35, joy=4); set_mode("eat", 60); say("feed", 50)
         elif kind == "bath":
-            care.add(clean=100, joy=3); set_mode("bath", 70)
+            care.add(clean=100, joy=3); set_mode("bath", 70); say("bath", 50)
         elif kind == "play":
             if care.v["energy"] < 10:
-                set_mode("need", 40)
+                set_mode("need", 40); say("tired", 40)
             else:
-                care.add(joy=30, energy=-10, food=-5); set_mode("play", 70)
+                care.add(joy=30, energy=-10, food=-5); set_mode("play", 70); say("play", 50)
         elif kind == "sleep":
-            set_mode("sleep", 10 ** 9)
+            # 立刻躺到工作列上睡，方便觀察側躺姿勢
+            st["target"] = None
+            st["vy"] = 0.0
+            st["fy"] = float(area[3])
+            set_mode("sleep", 10 ** 9); say("sleep", 55)
+        elif kind == "fly":
+            st["target"] = None
+            set_mode("fly", 160); say("fly", 45)
         elif kind == "plant":
             if support() and support()[0] is None:
                 set_mode("plant", 50)
             else:
                 return
+        elif kind == "meteor":
+            spawn_meteor()
+            say("meteor", 40)
         care.save()
 
-    # ---- home panel with the moonflower valley
+    def reply_chat(user_text):
+        """依關鍵字 / 狀態回一句話（離線劇本）。"""
+        t = (user_text or "").strip()
+        low = t.lower()
+        if not t:
+            return pick_line("chat")
+        if any(k in t for k in ("睡", "睏", "休息", "晚安")):
+            act("sleep"); return pick_line("sleep")
+        if any(k in t for k in ("餓", "吃", "飯", "餵", "糖", "糖果")):
+            act("feed"); return pick_line("feed")
+        if any(k in t for k in ("澡", "洗", "髒")):
+            act("bath"); return pick_line("bath")
+        if any(k in t for k in ("玩", "球", "遊戲")):
+            act("play"); return pick_line("play")
+        if any(k in t for k in ("流星", "許願", "星星")):
+            act("meteor"); return pick_line("meteor")
+        if any(k in t for k in ("飛", "翅膀")):
+            act("fly"); return pick_line("fly")
+        if any(k in t for k in ("遊戲", "小遊戲")):
+            return pick_line("game")
+        if any(k in t for k in ("愛", "喜歡", "想你", "你好", "嗨", "hello", "hi")) or "hello" in low:
+            care.add(joy=5); return random.choice(("……", "…………", "……嗯。", "……你。"))
+        need = care.need()
+        if need:
+            return pick_line({"food": "hungry", "bath": "dirty", "play": "bored", "sleep": "tired"}[need])
+        return pick_line("chat")
+
+    def open_minigame_meteor():
+        """限時接流星：點中桌面流星得分。"""
+        say("game", 40)
+        gw = tk.Toplevel(root)
+        gw.title("接流星")
+        gw.attributes("-topmost", True)
+        gw.resizable(False, False)
+        gw.configure(bg="#1a1a2e", padx=10, pady=10)
+        score = {"n": 0, "left": 20, "run": False}
+        info = tk.Label(gw, text="點流星　0 / 8　　剩 20 秒", bg="#1a1a2e", fg="#efeaf6", font=font_ui)
+        info.pack(pady=4)
+        tip = tk.Label(gw, text="……流星會從桌面飛過。", bg="#1a1a2e", fg="#b8b0c8", font=font_sm)
+        tip.pack()
+
+        def game_spawn():
+            before = len(st["meteors"])
+            spawn_meteor()
+            if len(st["meteors"]) <= before:
+                return
+            m = st["meteors"][-1]
+
+            def scored(_e, m=m):
+                if not score["run"]:
+                    return
+                score["n"] += 1
+                try:
+                    if m in st["meteors"]:
+                        st["meteors"].remove(m)
+                    m["win"].destroy()
+                except Exception:
+                    pass
+                set_mode("happy", 16)
+
+            m["lbl"].bind("<Button-1>", scored)
+
+        def tick_game():
+            if not gw.winfo_exists() or not score["run"]:
+                return
+            score["left"] -= 1
+            if score["n"] >= 8 or score["left"] <= 0:
+                score["run"] = False
+                if score["n"] >= 8:
+                    care.add(joy=15); say("meteor", 50); tip.configure(text="……接住了。")
+                else:
+                    tip.configure(text="……下次。")
+                info.configure(text=f"結束　{score['n']} 顆")
+                care.save()
+                return
+            info.configure(text=f"點流星　{score['n']} / 8　　剩 {score['left']} 秒")
+            if random.random() < 0.6:
+                game_spawn()
+            gw.after(1000, tick_game)
+
+        def start():
+            if score["run"]:
+                return
+            score.update(n=0, left=20, run=True)
+            tip.configure(text="……")
+            tick_game()
+
+        tk.Button(gw, text="開始", font=font_ui, command=start).pack(pady=8)
+        tk.Button(gw, text="關閉", font=font_sm, command=gw.destroy).pack()
+
+    def open_minigame_snow():
+        """點飄落的雪花，15 秒內愈多愈好。"""
+        say("game", 40)
+        gw = tk.Toplevel(root)
+        gw.title("飄雪")
+        gw.attributes("-topmost", True)
+        gw.resizable(False, False)
+        bgc = "#dfe6f2"
+        gw.configure(bg=bgc, padx=8, pady=8)
+        cv = tk.Canvas(gw, width=320, height=220, bg="#c8d2e6", highlightthickness=0)
+        cv.pack()
+        score = {"n": 0, "left": 15}
+        info = tk.Label(gw, text="點雪花　0　　剩 15 秒", bg=bgc, fg="#4a3c4e", font=font_ui)
+        info.pack(pady=4)
+        flakes = []
+
+        def add_flake():
+            x = random.randint(10, 310)
+            fid = cv.create_oval(x, -6, x + 8, 2, fill="#ffffff", outline="#eef4ff")
+            flakes.append({"id": fid, "y": -6.0, "x": float(x), "vy": 1.2 + random.random()})
+
+        def on_click(e):
+            hit = cv.find_overlapping(e.x - 6, e.y - 6, e.x + 6, e.y + 6)
+            for f in list(flakes):
+                if f["id"] in hit:
+                    cv.delete(f["id"])
+                    flakes.remove(f)
+                    score["n"] += 1
+                    info.configure(text=f"點雪花　{score['n']}　　剩 {score['left']} 秒")
+                    break
+
+        cv.bind("<Button-1>", on_click)
+
+        def loop():
+            if not gw.winfo_exists():
+                return
+            if random.random() < 0.45:
+                add_flake()
+            for f in list(flakes):
+                f["y"] += f["vy"]
+                cv.coords(f["id"], f["x"], f["y"], f["x"] + 8, f["y"] + 8)
+                if f["y"] > 220:
+                    cv.delete(f["id"])
+                    flakes.remove(f)
+            gw.after(50, loop)
+
+        def timer():
+            if not gw.winfo_exists():
+                return
+            score["left"] -= 1
+            info.configure(text=f"點雪花　{score['n']}　　剩 {score['left']} 秒")
+            if score["left"] <= 0:
+                care.add(joy=min(20, 4 + score["n"]))
+                say("game", 40, text="……" if score["n"] < 8 else "……好多雪。")
+                info.configure(text=f"結束　接住 {score['n']} 片")
+                care.save()
+                return
+            gw.after(1000, timer)
+
+        loop()
+        timer()
+
+    # ---- home panel: snow palace + chat
     panel = {"win": None}
 
     def open_panel():
         if panel["win"] is not None and panel["win"].winfo_exists():
             panel["win"].deiconify(); panel["win"].lift(); return
         pw = tk.Toplevel(root)
-        pw.title("無夢之夢・月光花谷")
+        pw.title("無夢之夢・雪白宮殿")
         pw.attributes("-topmost", True)
         pw.resizable(False, False)
-        bgc = "#efeaf6"
+        bgc = "#f4f0f8"
         pw.configure(bg=bgc, padx=12, pady=10)
-        font = ("Microsoft JhengHei UI", 10)
         vs = max(2, round(2 * dpi))
         scene = tk.Label(pw, bd=0, bg=bgc)
         scene.grid(row=0, column=0, columnspan=3, pady=(0, 8))
-        age = tk.Label(pw, bg=bgc, fg="#4a3c4e", font=("Microsoft JhengHei UI", 10, "bold"))
+        age = tk.Label(pw, bg=bgc, fg="#4a3c4e", font=font_bd)
         age.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 6))
         bars = {}
         colors = {"food": "#f2a86a", "clean": "#7cb8f0", "joy": "#f58aa6", "energy": "#9fd27c"}
         for i, (k, lbl) in enumerate(STATS, start=2):
-            tk.Label(pw, text=lbl, bg=bgc, fg="#4a3c4e", font=font).grid(row=i, column=0, sticky="w")
+            tk.Label(pw, text=lbl, bg=bgc, fg="#4a3c4e", font=font_ui).grid(row=i, column=0, sticky="w")
             c = tk.Canvas(pw, width=230, height=14, bg="#ddd5e4", highlightthickness=0)
             c.grid(row=i, column=1, padx=8, pady=3)
-            val = tk.Label(pw, bg=bgc, fg="#4a3c4e", font=font, width=4, anchor="e")
+            val = tk.Label(pw, bg=bgc, fg="#4a3c4e", font=font_ui, width=4, anchor="e")
             val.grid(row=i, column=2)
             bars[k] = (c, val, colors[k])
         row = tk.Frame(pw, bg=bgc)
         row.grid(row=7, column=0, columnspan=3, pady=(10, 0))
-        for txt, kind in (("餵食", "feed"), ("洗澡", "bath"), ("玩耍", "play"), ("睡覺", "sleep")):
-            tk.Button(row, text=txt, font=font, width=6, relief="groove", bg="#ffffff",
-                      command=lambda k=kind: act(k)).pack(side="left", padx=4)
+        for txt, kind in (("餵食", "feed"), ("洗澡", "bath"), ("玩耍", "play"), ("睡覺", "sleep"),
+                          ("飛行", "fly"), ("流星", "meteor")):
+            tk.Button(row, text=txt, font=font_ui, width=5, relief="groove", bg="#ffffff",
+                      command=lambda k=kind: act(k)).pack(side="left", padx=3)
+        games = tk.Frame(pw, bg=bgc)
+        games.grid(row=8, column=0, columnspan=3, pady=(6, 0))
+        tk.Button(games, text="小遊戲・接流星", font=font_ui, width=14, relief="groove", bg="#ffffff",
+                  command=open_minigame_meteor).pack(side="left", padx=3)
+        tk.Button(games, text="小遊戲・飄雪", font=font_ui, width=12, relief="groove", bg="#ffffff",
+                  command=open_minigame_snow).pack(side="left", padx=3)
+        chat_frame = tk.Frame(pw, bg=bgc)
+        chat_frame.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        tk.Label(chat_frame, text="跟她說話", bg=bgc, fg="#4a3c4e", font=font_ui).pack(anchor="w")
+        log = tk.Text(chat_frame, height=5, width=42, font=font_sm,
+                      bg="#ffffff", fg="#4a3c4e", relief="solid", bd=1, wrap="word")
+        log.pack(fill="x", pady=4)
+        log.configure(state="disabled")
+        entry_row = tk.Frame(chat_frame, bg=bgc)
+        entry_row.pack(fill="x")
+        entry = tk.Entry(entry_row, font=font_ui, bg="#ffffff", fg="#4a3c4e")
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        def append_chat(who, text):
+            log.configure(state="normal")
+            log.insert("end", f"{who}　{text}\n")
+            log.see("end")
+            log.configure(state="disabled")
+            st["chat_log"].append((who, text))
+            if len(st["chat_log"]) > 40:
+                st["chat_log"] = st["chat_log"][-40:]
+
+        for who, text in st["chat_log"][-8:]:
+            append_chat(who, text)
+
+        def send(_e=None):
+            msg = entry.get().strip()
+            if not msg:
+                return
+            entry.delete(0, "end")
+            append_chat("你", msg)
+            ans = reply_chat(msg)
+            append_chat("她", ans)
+            say("chat", 70, text=ans)
+
+        tk.Button(entry_row, text="送出", font=font_ui, width=6, relief="groove", bg="#ffffff",
+                  command=send).pack(side="left")
+        entry.bind("<Return>", send)
         holder = {}
 
         def upd():
             if not pw.winfo_exists():
                 return
             fr = frames.get(st["name"], frames["idle0"])
-            sc = valley(fr, t=st["tick"] // 10).resize((180 * vs, 100 * vs), Image.NEAREST)
+            met = st["panel_meteor"]
+            sc = dream_house(fr, t=st["tick"] // 10, meteor=met).resize((220 * vs, 120 * vs), Image.NEAREST)
             holder["img"] = ImageTk.PhotoImage(sc)
             scene.configure(image=holder["img"])
             days = int((time.time() - care.born) // 86400) + 1
-            mood = {"food": "肚子餓了…", "bath": "想洗澡…", "play": "好無聊…", "sleep": "好睏…"}.get(care.need(), "心情不錯 ♪")
+            mood = {"food": "肚子餓了…", "bath": "想洗澡…", "play": "好無聊…", "sleep": "好睏…"}.get(care.need(), "宮殿在下雪 ♪")
             age.configure(text=f"夢境神明　降臨第 {days} 天　{mood}")
             for k, (c, val, col) in bars.items():
                 v = care.v[k]
@@ -1108,11 +1730,15 @@ def run_pet(frames):
         upd()
         panel["win"] = pw
 
-    menu = tk.Menu(root, tearoff=0)
-    menu.add_command(label="無夢之夢（狀態）", command=open_panel)
+    menu = tk.Menu(root, tearoff=0, font=font_ui)
+    menu.add_command(label="無夢之夢（雪白宮殿）", command=open_panel)
     menu.add_separator()
-    for txt, kind in (("餵食", "feed"), ("洗澡", "bath"), ("玩耍", "play"), ("睡覺", "sleep"), ("種月光花", "plant")):
+    for txt, kind in (("餵食", "feed"), ("洗澡", "bath"), ("玩耍", "play"), ("睡覺", "sleep"),
+                      ("飛行", "fly"), ("種月光花", "plant"), ("召來流星", "meteor")):
         menu.add_command(label=txt, command=lambda k=kind: act(k))
+    menu.add_separator()
+    menu.add_command(label="小遊戲・接流星", command=open_minigame_meteor)
+    menu.add_command(label="小遊戲・飄雪", command=open_minigame_snow)
     menu.add_separator()
     walk_var = tk.BooleanVar(value=True)
 
@@ -1121,14 +1747,34 @@ def run_pet(frames):
         if not st["walk"] and st["mode"] in ("walk", "goto", "climb"):
             set_mode("idle", 60)
     menu.add_checkbutton(label="自由散步、爬視窗", variable=walk_var, command=toggle_walk)
-    size = tk.Menu(menu, tearoff=0)
+    auto_var = tk.BooleanVar(value=autostart_enabled())
+
+    def toggle_autostart():
+        ok = set_autostart(auto_var.get())
+        if not ok:
+            auto_var.set(autostart_enabled())
+            say("idle", 40)
+        else:
+            say("chat", 45)
+    menu.add_checkbutton(label="開機自動啟動", variable=auto_var, command=toggle_autostart)
+    size = tk.Menu(menu, tearoff=0, font=font_ui)
     for sc, lb in ((max(1, round(1.5 * dpi)), "小"), (max(2, round(2 * dpi)), "中"), (max(3, round(3 * dpi)), "大")):
-        size.add_command(label=lb, command=lambda sc=sc: (st.update(scale=sc), cache.clear(), fcache.clear()))
+        size.add_command(label=lb, command=lambda sc=sc: (st.update(scale=sc), cache.clear(), fcache.clear(), mcache.clear()))
     menu.add_cascade(label="大小", menu=size)
     menu.add_separator()
 
     def quit_():
         care.save()
+        for m in list(st["meteors"]):
+            try:
+                m["win"].destroy()
+            except Exception:
+                pass
+        if st["bubble"] is not None:
+            try:
+                st["bubble"].destroy()
+            except Exception:
+                pass
         root.destroy()
     menu.add_command(label="讓她回家（關閉）", command=quit_)
 
