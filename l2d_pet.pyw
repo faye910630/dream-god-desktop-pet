@@ -540,6 +540,7 @@ LINES = {
     "trip": ["……", "……痛。", "……沒事。"],
     "chat": ["……", "……嗯。", "……這樣啊。", "……知道了。", "（點頭）", "……？", "……朵莉姆在聽。"],
     "follow": ["……", "（跟——）", "……去哪。"],
+    "wish": ["……", "……願。", "…………", "……星星。"],
 }
 
 CHAT_RULES = [
@@ -558,6 +559,7 @@ CHAT_RULES = [
     (("彈", "琴", "音樂", "唱"), "harp", "……彈一首。"),
     (("布偶", "玩偶", "娃娃", "兔"), "plush", "……抱抱。"),
     (("星星", "接"), "stars", "……接星星。"),
+    (("願", "許願", "流星", "祈禱"), "wish", "……願。"),
     (("換裝", "衣服", "穿"), "outfit", "……換衣服。"),
     (("遊戲", "雲", "玩"), "game", "……上去。"),
     (("走", "散步"), "walk", "……走。"),
@@ -2925,6 +2927,46 @@ class Pet:
             self.ground()
             yield
 
+    def act_wish(self):
+        """許願：抬頭看天，流星劃過，無口地許一個願。"""
+        U = self.U
+        yield from self.turn_to(0, 0.1)
+        self.say(random.choice(LINES["wish"]), 2.2)
+        # 慢慢抬頭（視線往上、頭微揚）
+        for p in self.over(0.55):
+            e = ease(p)
+            self.a["head"] = -0.05 * U * e
+            self.look[1] = -0.85 * e
+            self.ground()
+            yield
+        # 流星從畫面上方斜劃而下
+        sx = self.P[0] + random.uniform(-0.8, 0.4) * U
+        sy = self.P[1] - 1.6 * U
+        for p in self.over(1.1):
+            e = ease(p)
+            mx = sx + 1.4 * U * e
+            my = sy + 1.1 * U * e
+            self.spawn("spark", mx, my, 0.15 * U, 0.12 * U, 0, 0.45)
+            if random.random() < 0.55:
+                self.spawn("spark", mx - 0.08 * U, my - 0.05 * U, 0.05 * U, 0.08 * U, 0, 0.35)
+            self.a["head"] = -0.05 * U
+            self.look[1] = -0.85
+            self.ground()
+            yield
+        # 收尾：心口一小下，心情上升
+        self.spawn("heart", self.P[0], self.P[1] - 0.4 * U, 0, -0.25 * U, 0, 1.0)
+        if self.care:
+            self.care.add("mood", 6)
+        for p in self.over(0.4):
+            e = 1 - ease(p)
+            self.a["head"] = -0.05 * U * e
+            self.look[1] = -0.85 * e
+            self.ground()
+            yield
+        self.a["head"] = 0.0
+        self.look[1] = 0.0
+        yield from self.act_idle(0.6, face=False)
+
     # ---------------------------------------------------------- 互動動作
     def mouth_y(self):
         """嘴巴的世界座標 y（正面、站直時）。"""
@@ -3799,6 +3841,7 @@ def run_app():
         "jump_down": pet.act_jump_down, "look": pet.act_look, "somersault": pet.act_somersault,
         "walk_l": lambda: pet.act_walk(-1, 4 * pet.U), "walk_r": lambda: pet.act_walk(1, 4 * pet.U),
         "dance": pet.act_dance, "harp": pet.act_harp, "plush": pet.act_hug_plush,
+        "wish": pet.act_wish,
     }
 
     def do_action(name):
@@ -3907,7 +3950,7 @@ def run_app():
                                           ("爬視窗", "climb"), ("跳下來", "jump_down"), ("種花", "plant"),
                                           ("跌倒", "trip"), ("雲端之夢", "game"), ("接星星", "stars"),
                                           ("跳舞", "dance"), ("彈豎琴", "harp"),
-                                          ("抱布偶", "plush"), ("收玩具", "toys_off"))):
+                                          ("抱布偶", "plush"), ("收玩具", "toys_off"), ("許願", "wish"))):
             tk.Button(btns, text=label, command=(lambda a=act: do_action(a)),
                       bg="#17142a", fg="#e8e4ff",
                       activebackground="#2c2840", activeforeground="#ffffff", relief="flat", pady=0,
@@ -4147,7 +4190,8 @@ def run_app():
         def go(name):
             return lambda: (dlg_say("……好。", then=lambda: (dlg_close(), do_action(name))))
         dlg_say("……玩什麼？", [("跳舞", go("dance")), ("彈豎琴", go("harp")),
-                              ("抱布偶", go("plush")), ("算了", lambda: main_menu("……嗯。"))])
+                              ("抱布偶", go("plush")), ("許願", go("wish")),
+                              ("算了", lambda: main_menu("……嗯。"))])
 
     def do_pat():
         if pet.care:
@@ -4400,6 +4444,7 @@ def run_app():
     menu.add_command(label="跌倒", command=do("trip"))
     menu.add_command(label="跳舞", command=do("dance"))
     menu.add_command(label="彈豎琴", command=do("harp"))
+    menu.add_command(label="許願", command=do("wish"))
     toys_menu = tk.Menu(menu, tearoff=0)
     toys_menu.add_command(label="拿出兔子布偶", command=do("toy_plush"))
     toys_menu.add_command(label="讓她抱布偶", command=do("plush"))
