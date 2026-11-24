@@ -3562,7 +3562,20 @@ def run_app():
         return out
 
     # ---- 主角
+    def log_error(*_args):
+        """打包成 exe（沒有主控台）時，把錯誤寫到 %APPDATA%/DreamGodL2D/error.log。"""
+        import traceback
+
+        try:
+            path = Path(os.environ.get("APPDATA", str(APP_DIR))) / "DreamGodL2D" / "error.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fp:
+                fp.write(time.strftime("%Y-%m-%d %H:%M:%S ") + traceback.format_exc() + "\n")
+        except Exception:
+            pass
+
     root = tk.Tk()
+    root.report_callback_exception = lambda *a: log_error()
     root.title(f"{PET_NAME}（夢境神明） L2D 桌寵")
     # 所有視窗（山谷、對話框）的圖示都換成月光花
     icons = [ImageTk.PhotoImage(moonflower_icon(n), master=root) for n in (16, 32, 48, 64)]
@@ -3963,12 +3976,16 @@ def run_app():
         try:
             unity["result"].unlink(missing_ok=True)
             outfit_idx = list(OUTFITS).index(cur["outfit"])
+            # 打包成無主控台的 exe 時沒有有效的標準輸入輸出，要明確導到 DEVNULL
             unity["proc"] = subprocess.Popen([str(UNITY_EXE), "-game", kind, "-outfit", str(outfit_idx),
-                                              "-result", str(unity["result"])], cwd=str(UNITY_EXE.parent))
+                                              "-result", str(unity["result"])], cwd=str(UNITY_EXE.parent),
+                                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.DEVNULL)
             unity["kind"] = kind
             pet.say("……上去。" if kind == "cloud" else "……接星星。", 1.4)
             return True
         except Exception:
+            log_error()
             return False
 
     def check_unity_game():
@@ -4480,9 +4497,7 @@ def run_app():
                 if bub["shown"]:
                     bubble.raise_top()
         except Exception:
-            import traceback
-
-            traceback.print_exc()
+            log_error()
         spent = (time.perf_counter() - now) * 1000
         root.after(max(1, int(33 - spent)), tick)
 
