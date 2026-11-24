@@ -5,3 +5,4 @@ build/
 dist/
 *.spec
 .git/COMMIT_MSG.tmp
+*.lnk
