@@ -493,7 +493,21 @@ def deco(im, kind, t=0):
     return im
 
 
-BASE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chibi_base.png")
+def app_dir():
+    """安裝／執行目錄（exe 旁邊；開發時為腳本目錄）。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resource_dir():
+    """打包進 exe 的資源目錄（PyInstaller 的 _MEIPASS）。"""
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", app_dir())
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+BASE_FILE = os.path.join(resource_dir(), "chibi_base.png")
 
 
 SIDE_FACE = {                                     # hand-drawn profile face, x30..43 (rows 18..29)
@@ -856,14 +870,19 @@ def set_autostart(on):
         except OSError:
             pass
         return True
-    here = os.path.dirname(os.path.abspath(__file__))
-    pyw = os.path.join(here, "fairy_pet.pyw")
-    pythonw = shutil.which("pythonw") or "pythonw"
+    here = app_dir()
+    if getattr(sys, "frozen", False):
+        target = sys.executable
+        run = f'sh.Run """{target}""", 0, False\n'
+    else:
+        pyw = os.path.join(here, "fairy_pet.pyw")
+        pythonw = shutil.which("pythonw") or "pythonw"
+        run = f'sh.Run """{pythonw}"" ""{pyw}""", 0, False\n'
     body = (
         'Option Explicit\n'
         f'Dim sh: Set sh = CreateObject("WScript.Shell")\n'
         f'sh.CurrentDirectory = "{here}"\n'
-        f'sh.Run """{pythonw}"" ""{pyw}""", 0, False\n'
+        + run
     )
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -879,7 +898,7 @@ def pick_line(kind):
 
 
 # ---------------------------------------------------------------- pixel font (Cubic 11 / 俐方體11號)
-PIXEL_FONT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "Cubic_11.ttf")
+PIXEL_FONT_FILE = os.path.join(resource_dir(), "fonts", "Cubic_11.ttf")
 PIXEL_FONT_FAMILY = "俐方體11號"
 _FONT_LOADED = False
 
@@ -1797,7 +1816,7 @@ def run_pet(frames):
 
 
 if __name__ == "__main__":
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = app_dir()
     frames = build_frames()
     if "--sheet" in sys.argv:
         export_sheet(frames, here)

@@ -1,3 +1,7 @@
 ﻿__pycache__/
 *.bak
 夢境神明_動作預覽.png
+build/
+dist/
+*.spec
+.git/COMMIT_MSG.tmp
