@@ -1015,7 +1015,17 @@ def run_pet(frames):
     except Exception:
         pass
     KEY = "#ff00fe"
+    try:  # 工作列用自己的圖示
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DreamGod.FairyPet")
+    except Exception:
+        pass
     root = tk.Tk()
+    try:  # 所有視窗的圖示都換成月光花
+        _icon = tk.PhotoImage(master=root, file=os.path.join(resource_dir(), "assets", "icons", "moonflower_64.png"))
+        root.iconphoto(True, _icon)
+        root._moonflower_icon = _icon
+    except Exception:
+        pass
     root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.configure(bg=KEY)
