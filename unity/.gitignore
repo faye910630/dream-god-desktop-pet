@@ -1,0 +1,12 @@
+# Unity 產生的暫存與建置輸出
+DreamGodGames/Library/
+DreamGodGames/Temp/
+DreamGodGames/Obj/
+DreamGodGames/Logs/
+DreamGodGames/UserSettings/
+DreamGodGames/*.csproj
+DreamGodGames/*.sln
+DreamGodGames/*.slnx
+Build/
+*.log
+DreamGodGames/.vscode/

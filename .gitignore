@@ -1,3 +1,16 @@
 ﻿__pycache__/
 *.bak
 夢境神明_動作預覽.png
+build/
+dist/
+*.spec
+.git/COMMIT_MSG.tmp
+*.lnk
+
+# PSD 匯出暫存／拆件 dump（不進版控）
+assets/psd_import/
+layers/
+psd/
+*.psd
+l2d/parts.js
+psd62-l2d/web/parts.js
