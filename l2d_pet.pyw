@@ -192,17 +192,19 @@ _C = {
     "G": (98, 150, 84, 255),  # 葉
     "g": (146, 192, 118, 255),  # 葉亮部
     "S": (84, 122, 66, 255),  # 莖
-    "W": (246, 246, 238, 255),  # 花瓣
-    "w": (222, 228, 216, 255),  # 花瓣陰影
-    "y": (206, 226, 168, 255),  # 星形花脈（淡綠）
-    "c": (222, 228, 130, 255),  # 花心
+    "W": (252, 252, 248, 255),  # 花瓣（近純白）
+    "w": (236, 238, 228, 255),  # 花瓣外緣微陰影
+    "y": (210, 224, 150, 255),  # 五道星紋（淡綠奶油）
+    "c": (228, 232, 160, 255),  # 花心
     "D": (92, 70, 58, 255),  # 土
     "d": (122, 96, 76, 255),  # 土亮部
 }
+# 心形葉（月光花葉）
 _LEAF = [
     ".LL.LL.",
     "LGgLGGL",
     "LGgGGGL",
+    "LGGgGGL",
     ".LGGGL.",
     "..LGL..",
     "...L...",
@@ -235,24 +237,36 @@ def _stamp(arr, pattern, x0, y0, flip=False):
 
 
 def _bloom(arr, cx, cy, open_frac=1.0):
-    """正面的月光花：白色圓形花瓣＋五道淡綠星紋＋花心。"""
-    R = 6.2 * open_frac
+    """正面月光花（Ipomoea alba）：近圓白瓣＋由花心放射到外緣的五道淡綠星紋。"""
+    R = 6.6 * open_frac
     mask = np.zeros(arr.shape[:2], bool)
+    # 五道星紋：一尖朝上
     rays = [math.radians(-90 + 72 * k) for k in range(5)]
     for y in range(arr.shape[0]):
         for x in range(arr.shape[1]):
             dx, dy = x - cx, y - cy
             r = math.hypot(dx, dy)
             th = math.atan2(dy, dx)
-            if r <= R * (0.93 + 0.07 * math.cos(5 * (th + math.pi / 2))):
-                mask[y, x] = True
-                col = _C["W"] if dy < 2.5 else _C["w"]
-                for a in rays:
-                    if r > 0.5 and abs(math.sin(th - a)) * r < 0.55 and math.cos(th - a) > 0:
-                        col = _C["y"]
-                if r < 1.3:
-                    col = _C["c"]
-                arr[y, x] = col
+            # 幾乎正圓，外緣只做很淺的五瓣起伏
+            edge = R * (0.97 + 0.03 * math.cos(5 * (th + math.pi / 2)))
+            if r > edge:
+                continue
+            mask[y, x] = True
+            # 白瓣：外緣略暗一點
+            col = _C["w"] if r > R * 0.78 else _C["W"]
+            # 星紋：靠射線越近越綠，內寬外尖
+            rib_w = 0.35 + 0.55 * (1.0 - r / max(R, 0.01))
+            on_rib = False
+            for a in rays:
+                dth = (th - a + math.pi) % (2 * math.pi) - math.pi
+                if abs(dth) * max(r, 0.4) < rib_w and r > 0.4:
+                    on_rib = True
+                    break
+            if on_rib:
+                col = _C["y"]
+            if r < R * 0.22:
+                col = _C["c"]
+            arr[y, x] = col
     nb = np.zeros_like(mask)
     nb[1:] |= mask[:-1]
     nb[:-1] |= mask[1:]
@@ -315,6 +329,59 @@ def moonflower_icon(size=32) -> Image.Image:
     arr = np.zeros((16, 16, 4), np.uint8)
     _bloom(arr, 7.5, 7.5)
     return Image.fromarray(arr).resize((size, size), Image.NEAREST)
+
+
+def draw_bouquet() -> Image.Image:
+    """月光花花束：真實月光花（圓白瓣＋五道淡綠星紋）＋心形葉＋黑包裝／金星網紗。"""
+    W, H = 25, 28
+    arr = np.zeros((H, W, 4), np.uint8)
+    ink = OUTLINE
+    black = (28, 26, 34, 255)
+    black_l = (48, 44, 56, 255)
+    gold = (232, 210, 120, 255)
+    # 莖
+    for x, y0 in ((9, 13), (12, 11), (15, 13), (11, 14), (14, 14)):
+        for y in range(y0, 19):
+            if 0 <= x < W:
+                arr[y, x] = _C["S"]
+    # 心形葉（塞在花叢間）
+    _stamp(arr, _LEAF, 2, 10)
+    _stamp(arr, _LEAF, 16, 11, flip=True)
+    _stamp(arr, _LEAF, 4, 14)
+    # 月光花（正面，星紋朝上）
+    _bloom(arr, 9.0, 9.0, 0.95)
+    _bloom(arr, 16.0, 8.0, 1.05)
+    _bloom(arr, 12.5, 5.5, 1.0)
+    _bloom(arr, 7.0, 12.5, 0.75)
+    _bloom(arr, 17.5, 12.0, 0.75)
+    # 黑網紗＋金色小星
+    for y in range(2, 15):
+        for x in range(3, 22):
+            if arr[y, x, 3] == 0:
+                continue
+            if (x + y * 3) % 8 == 0:
+                arr[y, x] = gold
+            elif (x * 2 + y) % 6 == 0:
+                r, g, b, a = (int(v) for v in arr[y, x])
+                arr[y, x] = (max(24, r * 3 // 4), max(24, g * 3 // 4), max(30, b * 3 // 4), a)
+    # 黑色錐形包裝
+    wrap = [
+        "......ooooo......",
+        ".....o#####o.....",
+        "....o#######o....",
+        "...o#########o...",
+        "...o#########o...",
+        "....o#######o....",
+        ".....ooooooo.....",
+    ]
+    for j, row in enumerate(wrap):
+        for i, ch in enumerate(row):
+            if ch == ".":
+                continue
+            x, y = 3 + i, 17 + j
+            if 0 <= x < W and 0 <= y < H:
+                arr[y, x] = ink if ch == "o" else (black_l if (i + j) % 3 == 0 else black)
+    return Image.fromarray(arr)
 
 
 def flower_stage(age_s: float) -> int:
@@ -557,7 +624,7 @@ CHAT_RULES = [
     (("吊",), "hang", "……倒過來。"),
     (("跳舞", "舞"), "dance", "……跳。"),
     (("彈", "琴", "音樂", "唱"), "harp", "……彈一首。"),
-    (("布偶", "玩偶", "娃娃", "兔"), "plush", "……抱抱。"),
+    (("花束", "布偶", "玩偶", "娃娃", "花"), "plush", "……抱抱。"),
     (("星星", "接"), "stars", "……接星星。"),
     (("願", "許願", "流星", "祈禱"), "wish", "……願。"),
     (("換裝", "衣服", "穿"), "outfit", "……換衣服。"),
@@ -1167,12 +1234,12 @@ class CloudGame:
 
 
 class StarCatchGame:
-    """接星星：在永夜山谷的地面左右移動，接住落下的星星糖與流星，避開惡夢球。"""
+    """接星星：在永夜山谷左右移動接星星糖／流星；無生命值，漏接或碰到惡夢都不結束。"""
 
     W, H = 180, 270
     SPEED = 115.0
     TITLE = "接星星"
-    HELP = "← → / A D 或滑鼠左右移動・接住星星，避開紫色的惡夢"
+    HELP = "← → / A D 或滑鼠左右移動・接住星星（無生命，Esc 離開）"
     SAVE_KEY = "best_stars"
 
     def __init__(self, sprites, best=0):
@@ -1193,7 +1260,6 @@ class StarCatchGame:
         self.objs = []
         self.fx = []
         self.score = 0
-        self.lives = 3
         self.t = 0.0
         self.spawn_t = 0.6
         self.state = "play"
@@ -1203,14 +1269,13 @@ class StarCatchGame:
         self.hurt = 0.0
 
     def click(self):
-        if self.state == "over":
-            self.reset()
+        pass
 
     def level(self):
         return min(1.0, self.t / 90.0)
 
     def step(self, dt, dx):
-        self.t += dt if self.state == "play" else 0.0
+        self.t += dt
         self.just_over = False
         self.squash = max(0.0, self.squash - dt * 4)
         self.hurt = max(0.0, self.hurt - dt)
@@ -1220,8 +1285,6 @@ class StarCatchGame:
             f[3] += 60 * dt
             f[4] -= dt
         self.fx = [f for f in self.fx if f[4] > 0]
-        if self.state != "play":
-            return
         if dx:
             self.vx = dx * self.SPEED
         elif self.mouse is not None:
@@ -1248,26 +1311,18 @@ class StarCatchGame:
             o["x"] = min(max(o["x"] + o["vx"] * dt, 6), self.W - 6)
             if top <= o["y"] <= self.floor and abs(o["x"] - self.x) < 13:
                 if o["kind"] == "nightmare":
-                    self.lives -= 1
-                    self.hurt = 0.6
+                    self.hurt = 0.35
                     self.burst(o["x"], o["y"], "dark")
                 else:
                     self.score += 3 if o["kind"] == "gold" else 1
                     self.squash = 1.0
                     self.burst(o["x"], o["y"], "spark")
+                    self.best = max(self.best, self.score)
                 continue
             if o["y"] > self.floor + 4:
-                if o["kind"] != "nightmare":
-                    self.lives -= 1
-                    self.hurt = 0.4
-                    self.burst(o["x"], self.floor, "miss")
-                continue
+                continue  # 漏接：不扣生命
             keep.append(o)
         self.objs = keep
-        if self.lives <= 0:
-            self.state = "over"
-            self.just_over = True
-            self.best = max(self.best, self.score)
 
     def burst(self, x, y, kind):
         for _ in range(6):
@@ -1345,28 +1400,16 @@ class StarCatchGame:
             m = ImageOps.mirror(wimg) if self.face > 0 else wimg
             out.paste(m, (int(self.x) - self.face * 2 - (m.width if self.face > 0 else 0), root_y - wroot), m)
         if self.hurt > 0 and int(self.hurt * 12) % 2:
-            pass  # 受傷時閃爍
+            pass  # 碰到惡夢時閃一下（不扣命）
         else:
             out.paste(bimg, (px, py), bimg)
-        # HUD
+        # HUD（無生命值）
         d = ImageDraw.Draw(out)
         d.fontmode = "1"
         font = pixel_font(11)
         d.rectangle((2, 2, 78, 30), fill=(8, 8, 16, 255), outline=(60, 56, 92, 255))
         d.text((5, 3), f"★ {self.score}", font=font, fill=(255, 248, 206, 255))
         d.text((5, 16), f"最佳 {self.best}", font=font, fill=(206, 226, 168, 255))
-        for i in range(3):
-            hx = W - 14 - i * 11
-            col = (255, 150, 182, 255) if i < self.lives else (60, 56, 80, 255)
-            for dx, dy in ((0, 0), (2, 0), (-1, 1), (0, 1), (1, 1), (2, 1), (3, 1), (0, 2), (1, 2), (2, 2),
-                           (1, 3)):
-                out.putpixel((hx + dx, 6 + dy), col)
-        if self.state == "over":
-            d.rectangle((10, H // 2 - 34, W - 10, H // 2 + 34), fill=(8, 8, 16, 255), outline=(150, 148, 186, 255))
-            d.text((22, H // 2 - 28), "……結束了。", font=font, fill=(232, 228, 255, 255))
-            d.text((22, H // 2 - 12), f"接到 {self.score} 顆星星", font=font, fill=(255, 248, 206, 255))
-            d.text((22, H // 2 + 4), f"最佳 {self.best}", font=font, fill=(206, 226, 168, 255))
-            d.text((22, H // 2 + 18), "空白鍵／點一下：再玩", font=font, fill=(176, 214, 244, 255))
         return out
 
 
@@ -1492,27 +1535,7 @@ def sleeve_colors(name: str):
 
 
 # ------------------------------------------------------------------ 玩具與音符（點陣）
-PLUSH = _pix([  # 月光兔布偶（耳朵上別著一朵月光花）
-    "..oo....oo......",
-    ".oWWo..oWWo.....",
-    ".oWPo..oWPo.....",
-    ".oWPo..oWPoyy...",
-    ".oWPo..oWPoyWy..",
-    ".oWWooooWWo.y...",
-    "oWWWWWWWWWWo....",
-    "oWWWWWWWWWWWo...",
-    "oWWkWWWWkWWWo...",
-    "oWWWWWppWWWWo...",
-    "oWWWWWWWWWWWo...",
-    ".oWWWWWWWWWo....",
-    "..oWWWWWWWo.....",
-    ".oWWWWWWWWWo....",
-    "oWWwWWWWWwWWo...",
-    "oWWwWWWWWwWWo...",
-    ".oWWWoooWWWo....",
-    "..ooo...ooo.....",
-], {"o": OUTLINE, "W": (250, 250, 255, 255), "w": (226, 224, 238, 255), "P": (250, 186, 206, 255),
-    "k": (52, 46, 64, 255), "p": (240, 150, 176, 255), "y": (222, 228, 130, 255)})
+PLUSH = draw_bouquet()  # 月光花花束（抱／拖／放下用）
 
 NOTE_COLORS = {"n": (236, 230, 255, 255), "o": (150, 140, 196, 255)}
 PARTICLES["note"] = _pix([
@@ -1633,7 +1656,7 @@ DANCE_TUNE = dance_tune()
 # ------------------------------------------------------------------ 玩具（可以拖、會彈、會滾）
 class Toy:
     def __init__(self, kind, x, y):
-        self.kind = kind  # 目前只有 "plush"（月光兔布偶）
+        self.kind = kind  # 目前只有 "plush"（月光花花束）
         self.x, self.y = x, y  # 底部中央（螢幕座標）
         self.vx = self.vy = 0.0
         self.angle = 0.0
@@ -2857,12 +2880,12 @@ class Pet:
         return min(toys, key=lambda tt: abs(tt.x - self.P[0])) if toys else None
 
     def act_hug_plush(self):
-        """走到兔子布偶旁邊，撿起來抱一抱，再放下。"""
+        """走到月光花花束旁邊，撿起來抱一抱，再放下。"""
         U = self.U
         s = self.rig.s
         plush = self.nearest_toy("plush")
         if not plush:
-            self.say("……布偶呢？")
+            self.say("……花束呢？")
             return
         for _tries in range(4):
             plush = self.nearest_toy("plush")
@@ -2888,21 +2911,19 @@ class Pet:
             self.ground()
             yield
         self.sy = 1.0
-        self.say("……抱抱。", 1.6)
+        self.say("……好香。", 1.6)
         for p in self.over(3.0):  # 抱在懷裡左右搖
             sway = math.sin(p * 3 * 2 * math.pi)
             self.a["lean"] = sway * 0.02 * U
             self.a["head"] = sway * 0.015 * U
             cb = self.mouth_y() + (PLUSH.height + 4) * s
             self.props["plush"] = (PLUSH, self.P[0] + sway * s, cb, "front")
-            self.props["hands"] = (self.rig.hold_hands, self.P[0] + sway * s, cb - 4 * s, "front")
             if random.random() < 0.02:
                 self.spawn("heart", self.P[0], self.P[1] - 0.45 * U, 0, -0.3 * U, 0, 1.0)
             self.ground()
             yield
         self.a["lean"] = self.a["head"] = 0.0
         self.props.pop("plush", None)
-        self.props.pop("hands", None)
         plush.carried = False
         side = random.choice([1, -1])
         plush.x, plush.y, plush.vx, plush.vy = self.P[0] + side * 0.32 * U, self.work[3], 0.0, 0.0
@@ -3741,7 +3762,7 @@ def run_app():
 
     pet.on_sound = play_sound
 
-    # ---- 玩具：月光兔布偶（可以拖、會掉下來）
+    # ---- 玩具：月光花花束（可以拖、會掉下來）
     class ToyBox:
         def __init__(self):
             self.items = []  # (Toy, LWin, state)
@@ -3925,8 +3946,9 @@ def run_app():
     HS = 2  # 山谷畫面放大倍率
     VW, VH = 200, 125
     home = {"win": None, "canvas": None, "photo": None}
-    bar_colors = {"hunger": (250, 190, 206), "clean": (150, 200, 255), "mood": (255, 150, 182),
-                  "energy": (206, 226, 168)}
+    # 狀態條統一月光淡紫（跟山谷夜色／邊框同一色系）
+    _BAR = (210, 190, 255)
+    bar_colors = {"hunger": _BAR, "clean": _BAR, "mood": _BAR, "energy": _BAR}
 
     def open_home():
         if home["win"] is not None and home["win"].winfo_exists():
@@ -3950,7 +3972,7 @@ def run_app():
                                           ("爬視窗", "climb"), ("跳下來", "jump_down"), ("種花", "plant"),
                                           ("跌倒", "trip"), ("雲端之夢", "game"), ("接星星", "stars"),
                                           ("跳舞", "dance"), ("彈豎琴", "harp"),
-                                          ("抱布偶", "plush"), ("收玩具", "toys_off"), ("許願", "wish"))):
+                                          ("抱花束", "plush"), ("收花束", "toys_off"), ("許願", "wish"))):
             tk.Button(btns, text=label, command=(lambda a=act: do_action(a)),
                       bg="#17142a", fg="#e8e4ff",
                       activebackground="#2c2840", activeforeground="#ffffff", relief="flat", pady=0,
@@ -4190,7 +4212,7 @@ def run_app():
         def go(name):
             return lambda: (dlg_say("……好。", then=lambda: (dlg_close(), do_action(name))))
         dlg_say("……玩什麼？", [("跳舞", go("dance")), ("彈豎琴", go("harp")),
-                              ("抱布偶", go("plush")), ("許願", go("wish")),
+                              ("抱花束", go("plush")), ("許願", go("wish")),
                               ("算了", lambda: main_menu("……嗯。"))])
 
     def do_pat():
@@ -4294,9 +4316,11 @@ def run_app():
         """養成遊戲風的對話畫面：背景變暗、右側左 45 度的大張立繪、底部對話框、名牌、選項。"""
         dim = Image.new("RGBA", bg.size, (4, 4, 12, 120))
         bg.alpha_composite(dim)
-        # 立繪：面向左 45 度（左前斜側），2 倍放大的上半身
+        # 立繪：靜止（關掉頭髮／裙子／呼吸／翅膀等物理晃動）
         p = pet.params()
-        p.update(gait=0.0, stride=0.0, look_x=0.0, look_y=0.0, head_view=None, lean=0.0, legs=0.0)
+        p.update(gait=0.0, stride=0.0, look_x=0.0, look_y=0.0, head_view=None,
+                 lean=0.0, legs=0.0, head=0.0, hair=0.0, skirt=0.0, flare=0.0,
+                 breath=0.0, wing=0.0, wing_flap=1.0)
         por = rig.render(("fl", False), p, 0, 1, 1)
         box = por.getbbox()
         if box:
@@ -4340,7 +4364,13 @@ def run_app():
     def render_home():
         if home["win"] is None:
             return
-        t = pet.t
+        # 對話中凍結山谷時間，花／星光也不晃
+        t = home.get("dlg_t", pet.t) if dlg["on"] else pet.t
+        if dlg["on"] and "dlg_t" not in home:
+            home["dlg_t"] = pet.t
+            t = home["dlg_t"]
+        if not dlg["on"]:
+            home.pop("dlg_t", None)
         bg = draw_valley(t, VW, VH)
         # 山谷裡的她＝桌面上的她：同一個畫格（吃飯、洗澡、跌倒、睡覺、翻滾、倒吊…都同步），
         # 在桌面上的左右位置對應到山谷裡的左右位置，離地高度也照比例（太高就停在山谷頂端）
@@ -4446,11 +4476,11 @@ def run_app():
     menu.add_command(label="彈豎琴", command=do("harp"))
     menu.add_command(label="許願", command=do("wish"))
     toys_menu = tk.Menu(menu, tearoff=0)
-    toys_menu.add_command(label="拿出兔子布偶", command=do("toy_plush"))
-    toys_menu.add_command(label="讓她抱布偶", command=do("plush"))
+    toys_menu.add_command(label="拿出月光花花束", command=do("toy_plush"))
+    toys_menu.add_command(label="讓她抱花束", command=do("plush"))
     toys_menu.add_separator()
-    toys_menu.add_command(label="收起玩具", command=lambda: toybox.clear())
-    menu.add_cascade(label="玩具", menu=toys_menu)
+    toys_menu.add_command(label="收起花束", command=lambda: toybox.clear())
+    menu.add_cascade(label="花束", menu=toys_menu)
     menu.add_separator()
     more = tk.Menu(menu, tearoff=0)
     for label, name in (("往左走", "walk_l"), ("往右走", "walk_r"), ("轉一圈", "spin"), ("東張西望", "look"),

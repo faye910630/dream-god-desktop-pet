@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>L2D 角色</title>
+<style>
+:root{--bg:#f4f1f3;--panel:#ffffff;--ink:#2b2629;--mute:#8a8287;--line:#e6e0e4;--acc:#b45a78;--stage:#e9e4e8}
+@media (prefers-color-scheme:dark){:root{--bg:#18161a;--panel:#211e23;--ink:#ece6ea;--mute:#9a9298;--line:#332e35;--acc:#e08aa8;--stage:#121014}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,"Microsoft JhengHei","PingFang TC",sans-serif}
+#app{display:flex;height:100%}
+#stage{position:relative;flex:1;min-width:0;background:var(--stage)}
+#stage.checker{background:repeating-conic-gradient(#d8d3d7 0 25%,#ece8eb 0 50%) 0 0/24px 24px}
+#stage.white{background:#fff}#stage.dark{background:#1d1a20}#stage.pink{background:#f6dfe7}#stage.green{background:#00ff00}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:pointer;touch-action:none}
+#hint{position:absolute;left:12px;bottom:10px;font-size:12px;color:var(--mute);pointer-events:none}
+#fps{position:absolute;right:12px;top:10px;font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums}
+aside{width:300px;flex:none;overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:14px 16px 24px}
+h1{font-size:16px;margin:0 0 2px}
+.sub{color:var(--mute);font-size:12px;margin-bottom:12px}
+h2{font-size:12px;letter-spacing:.06em;color:var(--mute);margin:16px 0 6px;font-weight:600}
+.row{display:grid;grid-template-columns:72px 1fr 40px;align-items:center;gap:8px;margin:3px 0}
+.row label{font-size:13px}
+.row output{font-size:11px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
+.row.manual label{color:var(--acc);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button,select{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:6px 10px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+.tog{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:13px}
+.tog input{accent-color:var(--acc)}
+@media (max-width:760px){#app{flex-direction:column}#stage{flex:none;height:62vh}aside{width:auto;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage" class="checker">
+    <canvas id="gl"></canvas>
+    <div id="fps"></div>
+    <div id="hint">點頭部：開心 ・ 點身體：拍翅膀 ・ 滾輪縮放 ・ 拖曳移動</div>
+  </div>
+  <aside>
+    <h1>L2D 角色</h1>
+    <div class="sub">網格變形綁定・拖動滑桿可手動控制（變粉紅＝手動中）</div>
+
+    <h2>動作</h2>
+    <div class="btns">
+      <button data-motion="talk">說話</button>
+      <button data-motion="happy">開心</button>
+      <button data-motion="flap">拍翅膀</button>
+      <button data-motion="nod">點頭</button>
+      <button data-motion="shake">搖頭</button>
+      <button data-motion="blink">眨眼</button>
+    </div>
+
+    <h2>控制</h2>
+    <label class="tog"><input type="checkbox" id="follow" checked>視線跟隨滑鼠</label>
+    <label class="tog"><input type="checkbox" id="idle" checked>自動待機（眨眼／呼吸／東張西望）</label>
+    <label class="tog"><input type="checkbox" id="phys" checked>頭髮・緞帶・裙子物理</label>
+    <label class="tog"><input type="checkbox" id="mesh">顯示網格</label>
+    <div class="btns" style="margin-top:8px">
+      <select id="bg">
+        <option value="checker">背景：透明格</option><option value="white">背景：白</option>
+        <option value="dark">背景：深色</option><option value="pink">背景：粉</option><option value="green">背景：綠幕</option>
+      </select>
+      <button id="reset" class="primary">全部交回自動</button>
+    </div>
+
+    <div id="params"></div>
+  </aside>
+</div>
+<script src="parts.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   參數定義（仿 Cubism 標準參數）
+   ============================================================ */
+const PARAMS = [
+  ["頭部", [["angleX","角度 X",-30,30,0],["angleY","角度 Y",-30,30,0],["angleZ","角度 Z",-30,30,0]]],
+  ["身體", [["bodyX","身體 X",-10,10,0],["bodyZ","身體 Z",-10,10,0],["breath","呼吸",0,1,0]]],
+  ["眼睛", [["eyeL","左眼開閉",0,1,1],["eyeR","右眼開閉",0,1,1],["eyeBX","眼球 X",-1,1,0],["eyeBY","眼球 Y",-1,1,0]]],
+  ["臉",   [["brow","眉毛上下",-1,1,0],["mouthOpen","嘴巴開合",0,1,0],["mouthForm","嘴型",-1,1,0],["cheek","腮紅",0,1,1]]],
+  ["其他", [["wing","翅膀",-1,1,0]]],
+];
+const DEF = {}; PARAMS.forEach(g=>g[1].forEach(p=>DEF[p[0]]=p));
+const val = {}, manual = {};
+for (const k in DEF) { val[k]=DEF[k][4]; manual[k]=null; }
+
+/* ============================================================
+   綁定常數（PSD 2048 座標）
+   ============================================================ */
+const NECK={x:1024,y:800}, HIP={x:1024,y:1380}, HEADC={x:1024,y:470}, HEADR=430;
+const EYE={L:{x:902,y:640},R:{x:1145,y:640}}, EYE_CLOSE_Y=652;
+// 上眼皮翻轉：以 LID_C0 為軸，閉眼時翻到 LID_CLOSED
+const LID_C0=618, LID_CLOSED=640;
+const EYE_MASK_IDS=new Set([30,38]); // 眼白＋上眼皮：虹膜只在這範圍內顯示
+const BLINK_FADE=new Set([42,46,271]); // 眼睛反光：閉眼時淡出
+const SHOULDER={L:{x:930,y:850},R:{x:1118,y:850}};
+const WINGP={L:{x:800,y:238},R:{x:1248,y:238}};
+const MOUTH={x:1024,y:726};
+const HEAD_ROLES=new Set(["tails","braid","ribbon","head","ear","face","hair","mouth","mouthOpen","brow","crease","sclera","lid","iris","lowlid","wings"]);
+// 景深：正值往轉向方向移動，負值反向（視差）
+const Z={1:-.45,2:-.45,4:-.45,6:-.45,7:-.45,8:-.45,9:-.45,11:-.6,12:-.1,
+  13:.25,17:.25,25:.55,22:.55,14:.5,45:.7,
+  15:.55,19:.55,20:.55,21:.55,23:.55,24:.55,26:.55,27:.55,
+  28:.65,29:.7,16:.7,1001:.7,52:-.3};
+const ROLE_Z={sclera:.7,lid:.7,lowlid:.7,iris:.74};
+// #32 虹膜底盤、#37 虹膜外框要跟著眼珠一起動
+
+/* ============================================================
+   WebGL
+   ============================================================ */
+const cv=document.getElementById("gl");
+const gl=cv.getContext("webgl",{premultipliedAlpha:true,alpha:true,antialias:true});
+const VS=`attribute vec2 aP;attribute vec2 aU;attribute float aA;uniform vec4 uV;varying vec2 vU;varying float vA;
+void main(){vU=aU;vA=aA;gl_Position=vec4(aP.x*uV.x+uV.z,aP.y*uV.y+uV.w,0.,1.);}`;
+// uM：遮罩（眼白），以螢幕座標取樣，讓虹膜不會跑出眼眶
+const FS=`precision mediump float;varying vec2 vU;varying float vA;uniform sampler2D uT;uniform sampler2D uM;uniform float uMk;uniform vec2 uR;uniform float uA;uniform vec4 uC;
+void main(){if(uC.a>0.){gl_FragColor=uC;return;}vec4 c=texture2D(uT,vU);
+float m=uMk>0.?texture2D(uM,gl_FragCoord.xy/uR).a:1.;gl_FragColor=c*(uA*vA*m);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const aP=gl.getAttribLocation(prog,"aP"),aU=gl.getAttribLocation(prog,"aU"),aA=gl.getAttribLocation(prog,"aA");
+const uV=gl.getUniformLocation(prog,"uV"),uA=gl.getUniformLocation(prog,"uA"),uC=gl.getUniformLocation(prog,"uC");
+const uM=gl.getUniformLocation(prog,"uM"),uMk=gl.getUniformLocation(prog,"uMk"),uR=gl.getUniformLocation(prog,"uR");
+gl.uniform1i(gl.getUniformLocation(prog,"uT"),0);gl.uniform1i(uM,1);gl.uniform1f(uMk,0);
+gl.enableVertexAttribArray(aP);gl.enableVertexAttribArray(aU);gl.enableVertexAttribArray(aA);
+gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
+gl.enable(gl.BLEND);
+
+function makeTex(img){
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  return t;
+}
+function makeMesh(p){
+  const cell=36, nx=Math.max(2,Math.ceil(p.w/cell)+1), ny=Math.max(2,Math.ceil(p.h/cell)+1);
+  const n=nx*ny, base=new Float32Array(n*2), uv=new Float32Array(n*2);
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=(j*nx+i)*2,u=i/(nx-1),v=j/(ny-1);
+    uv[k]=u;uv[k+1]=v;base[k]=p.x+u*p.w;base[k+1]=p.y+v*p.h;}
+  const tri=[],lin=[];
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;tri.push(a,b,c,b,d,c);lin.push(a,b,a,c,a,d);}
+  for(let i=0;i<nx-1;i++)lin.push((ny-1)*nx+i,(ny-1)*nx+i+1);
+  for(let j=0;j<ny-1;j++)lin.push(j*nx+nx-1,(j+1)*nx+nx-1);
+  p.base=base;p.pos=new Float32Array(n*2);p.va=new Float32Array(n).fill(1);p.n=n;
+  p.vaBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,p.vaBuf);gl.bufferData(gl.ARRAY_BUFFER,p.va,gl.DYNAMIC_DRAW);
+  p.uvBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,p.uvBuf);gl.bufferData(gl.ARRAY_BUFFER,uv,gl.STATIC_DRAW);
+  p.posBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,p.posBuf);gl.bufferData(gl.ARRAY_BUFFER,p.pos,gl.DYNAMIC_DRAW);
+  p.idx=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,p.idx);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(tri),gl.STATIC_DRAW);p.ni=tri.length;
+  p.lidx=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,p.lidx);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(lin),gl.STATIC_DRAW);p.nl=lin.length;
+}
+// 程式生成「張嘴」圖
+function mouthSprite(){
+  const c=document.createElement("canvas");c.width=104;c.height=76;const x=c.getContext("2d");
+  x.beginPath();x.ellipse(52,38,44,32,0,0,Math.PI*2);x.fillStyle="#d7a0aa";x.fill();
+  x.save();x.clip();x.beginPath();x.ellipse(52,72,34,22,0,0,Math.PI*2);x.fillStyle="#f4c6cd";x.fill();
+  x.fillStyle="#fff";x.beginPath();x.moveTo(30,8);x.lineTo(38,22);x.lineTo(44,8);x.fill();x.beginPath();x.moveTo(60,8);x.lineTo(66,22);x.lineTo(74,8);x.fill();x.restore();
+  x.beginPath();x.ellipse(52,38,44,32,0,0,Math.PI*2);x.lineWidth=5;x.strokeStyle="#b98790";x.stroke();
+  return c;
+}
+
+/* ============================================================
+   載入圖層
+   ============================================================ */
+const parts=[];
+let loaded=0;
+function addPart(p,img){p.masked=p.role==="iris"&&!p.clip;p.tex=makeTex(img);makeMesh(p);p.z=(p.id in Z)?Z[p.id]:(ROLE_Z[p.role]??0);}
+async function load(){
+  const list=window.PARTS.slice();
+  // 繪製順序（含脖子在後腦勺之上）已由 tools/export_psd62_rig.py 排好
+  await Promise.all(list.map(p=>new Promise(r=>{const im=new Image();im.onload=()=>{addPart(p,im);r()};im.src=p.src;})));
+  for(const p of list){parts.push(p);
+    if(p.id===16){const m={id:1001,name:"張嘴",role:"mouthOpen",blend:"normal",clip:true,x:MOUTH.x-26,y:MOUTH.y-19,w:52,h:38};addPart(m,mouthSprite());parts.push(m);}
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ============================================================
+   物理（彈簧擺）
+   ============================================================ */
+const PHYS={
+  tails:{k:16,c:2.8,g:1.0,i:.0011}, braid:{k:26,c:3.6,g:.7,i:.0008}, ribbon:{k:20,c:2.2,g:.9,i:.0014},
+  side:{k:34,c:4.5,g:.45,i:.0007}, bang:{k:46,c:6,g:.25,i:.0005},
+  skirt:{k:20,c:3,g:.5,i:.001}, bow:{k:40,c:3.5,g:.6,i:.0012}, sleeve:{k:18,c:2.6,g:.55,i:.0016}
+};
+for(const k in PHYS)Object.assign(PHYS[k],{a:0,v:0});
+const track={head:{x:0,v:0,acc:0},body:{x:0,v:0,acc:0}};
+function stepPhys(dt,on,t){
+  const hRot=(val.angleZ+val.bodyZ)*Math.PI/180, bRot=val.bodyZ*Math.PI/180;
+  const hx=val.angleX*1.6+val.bodyX*4+val.angleZ*3, bx=val.bodyX*4+val.bodyZ*5;
+  for(const [tr,x] of [[track.head,hx],[track.body,bx]]){const v=(x-tr.x)/dt;tr.acc=tr.acc*.6+((v-tr.v)/dt)*.4;tr.v=v;tr.x=x;}
+  const wind=Math.sin(t*1.3)*.015+Math.sin(t*2.9+1)*.008;
+  for(const k in PHYS){const s=PHYS[k];
+    if(!on){s.a=0;s.v=0;continue}
+    const body=(k==="skirt"||k==="bow"||k==="sleeve"), rot=body?bRot:hRot, acc=body?track.body.acc:track.head.acc;
+    // 頭部旋轉後，垂下的部位要反向擺回來保持朝下（重力）
+    const target=rot*s.g+wind*(body?.4:1);
+    const n=3,h=dt/n;
+    for(let i=0;i<n;i++){const f=-s.k*(s.a-target)-s.c*s.v-acc*s.i;s.v+=f*h;s.a+=s.v*h;}
+    s.a=Math.max(-.6,Math.min(.6,s.a));
+  }
+}
+
+/* ============================================================
+   變形
+   ============================================================ */
+const cl=(v,a=0,b=1)=>v<a?a:v>b?b:v;
+const ss=(a,b,v)=>{const t=cl((v-a)/(b-a));return t*t*(3-2*t)};
+let bodyXf={c:1,s:0,ox:0,oy:0};
+function rot(x,y,cx,cy,c,s){const dx=x-cx,dy=y-cy;return [cx+dx*c-dy*s,cy+dx*s+dy*c];}
+
+function deformPart(p,frame){
+  const b=p.base,o=p.pos,va=p.va,n=p.n,role=p.role,head=HEAD_ROLES.has(role);
+  const ax=val.angleX/30, ay=val.angleY/30, az=val.angleZ*Math.PI/180, cz=Math.cos(az), sz=Math.sin(az);
+  const bz=val.bodyZ*Math.PI/180, cbz=Math.cos(bz), sbz=Math.sin(bz);
+  const br=val.breath, bxN=val.bodyX/10;
+  // 頭部掛在脖子上：脖子點經過身體變換後的位置
+  const neck=bodyPoint(NECK.x,NECK.y,1,cbz,sbz,br,bxN);
+  for(let k=0;k<n*2;k+=2){
+    let x=b[k],y=b[k+1];
+    const side=x<1024?"L":"R";
+    /* ---- 局部變形 ---- */
+    switch(role){
+      case "sclera": case "iris": {
+        if(role==="iris"){x+=val.eyeBX*14;y+=val.eyeBY*6;}
+        const op=side==="L"?val.eyeL:val.eyeR;
+        y=EYE_CLOSE_Y+(y-EYE_CLOSE_Y)*op;
+        if(BLINK_FADE.has(p.id))va[k>>1]=ss(.05,.3,op);
+        break;}
+      case "lid": {
+        // 上眼皮像鉸鏈一樣往下翻：縱向縮放 cos(θ) 從 1 → -1
+        const op=side==="L"?val.eyeL:val.eyeR, f=Math.cos(Math.PI*(1-op));
+        const c=LID_C0+(LID_CLOSED-LID_C0)*(1-op);
+        y=c+(y-LID_C0)*f; break;}
+      case "lowlid": {const op=side==="L"?val.eyeL:val.eyeR; y-=(1-op)*3; va[k>>1]=ss(.35,.8,op); break;}
+      // 額頭上的兩個圓是麻呂眉：只跟眉毛參數上下動，眨眼時微微下沉
+      case "brow": {const op=side==="L"?val.eyeL:val.eyeR; y+=-val.brow*14+(1-op)*3; break;}
+      // 雙眼皮線：閉眼時跟著往下
+      case "crease": {const op=side==="L"?val.eyeL:val.eyeR; y+=(1-op)*8; break;}
+      case "mouth": {const dx=(x-MOUTH.x)/28; y+=val.mouthForm*(7*(1-dx*dx)-2); break;}
+      case "mouthOpen": {y=MOUTH.y-6+(y-MOUTH.y+6)*val.mouthOpen*(1-.15*val.mouthForm); x=MOUTH.x+(x-MOUTH.x)*(.75+.25*val.mouthOpen); break;}
+      case "wings": {
+        const pv=WINGP[side], sg=side==="L"?1:-1, a=sg*val.wing*.42;
+        const r=rot(x,y,pv.x,pv.y,Math.cos(a),Math.sin(a)); x=pv.x+(r[0]-pv.x)*(1-.18*Math.abs(val.wing)); y=r[1]; break;}
+      case "hair": {
+        const s=Math.abs(x-1024);
+        const ws=ss(140,230,s)*Math.pow(cl((y-430)/380),1.8); x+=PHYS.side.a*380*ws*.9;
+        const wb=Math.pow(cl((y-230)/215),2)*(1-ss(150,215,s)); x+=PHYS.bang.a*215*wb*.7; break;}
+      case "tails": {const t=cl((y-725)/545); x+=PHYS.tails.a*545*Math.pow(t,1.6); y-=Math.abs(PHYS.tails.a)*60*t*t; break;}
+      case "braid": {const t=cl((y-640)/330); x+=PHYS.braid.a*330*Math.pow(t,1.3); break;}
+      case "ribbon": {const t=cl((y-655)/250); x+=PHYS.ribbon.a*250*Math.pow(t,1.2); break;}
+      case "skirt": case "dress": {const t=cl((y-1150)/430); x+=PHYS.skirt.a*430*Math.pow(t,1.5)*.6*(role==="dress"?.7:1); break;}
+      case "bow": {const t=cl((y-885)/85); x+=PHYS.bow.a*85*t; break;}
+      // 袖子：以肩膀為支點的鐘擺，越往袖口擺越多（彎曲感）
+      case "arms": {const pv=SHOULDER[side], d=Math.hypot(x-pv.x,y-pv.y), t=cl(d/420);
+        const a=PHYS.sleeve.a*(.35+.65*t)+(side==="L"?-1:1)*br*.025*t;
+        const r=rot(x,y,pv.x,pv.y,Math.cos(a),Math.sin(a)); x=r[0];y=r[1]; break;}
+    }
+    if(head){
+      /* ---- 頭部 3D 轉向（視差 + 球面凸出） ---- */
+      const z=p.z, u=(x-HEADC.x)/HEADR, v=(y-HEADC.y)/HEADR, bu=cl(1-u*u-v*v);
+      const zf=z>0?z/.7:0;
+      x+=ax*(30*z+30*bu*zf); y+=ay*(22*z+22*bu*zf);
+      // 轉向時遠側略為壓縮
+      x+=ax*-.06*(x-HEADC.x)*Math.abs(ax)*zf;
+      /* ---- 頭部旋轉 Z（以脖子為軸） ---- */
+      const r=rot(x,y,NECK.x,NECK.y,cz,sz); x=r[0];y=r[1];
+      /* ---- 跟隨身體 ---- */
+      const dx=x-NECK.x,dy=y-NECK.y;
+      x=neck[0]+dx*cbz-dy*sbz; y=neck[1]+dx*sbz+dy*cbz;
+    } else {
+      const w=role==="legs"?ss(1880,1300,y)*.35:ss(1880,1250,y);
+      const r=bodyPoint(x,y,w,cbz,sbz,br,bxN); x=r[0];y=r[1];
+    }
+    o[k]=x;o[k+1]=y;
+  }
+}
+function bodyPoint(x,y,w,cbz,sbz,br,bxN){
+  // 呼吸：胸口上抬
+  const bw=cl((1320-y)/520);
+  y-=br*9*bw; x=1024+(x-1024)*(1+br*.008*bw);
+  // 身體 X：上半身凸出位移
+  const by=cl(1-Math.pow((y-1050)/520,2));
+  x+=bxN*20*by*w; y+=Math.abs(bxN)*-2*by;
+  // 身體 Z：以腰為軸旋轉（越下越少）
+  const a=Math.atan2(sbz,cbz)*w, c=Math.cos(a), s=Math.sin(a);
+  return rot(x,y,HIP.x,HIP.y,c,s);
+}
+
+/* ============================================================
+   自動控制：待機、視線、動作
+   ============================================================ */
+const auto={}; for(const k in DEF)auto[k]=DEF[k][4];
+const mouse={x:0,y:0,in:false,last:0};
+let lookT={x:0,y:0},lookNext=0,blinkNext=1.5,blinkT=-1,dblBlink=false;
+const motions=[];
+function motion(name){motions.push({name,t:0});}
+const MOTION_LEN={talk:2.6,happy:1.6,flap:1.2,nod:1.0,shake:1.2,blink:.35};
+function applyMotions(dt,A){
+  for(let i=motions.length-1;i>=0;i--){const m=motions[i];m.t+=dt;const t=m.t,L=MOTION_LEN[m.name],env=Math.sin(Math.PI*cl(t/L));
+    switch(m.name){
+      case "talk":{const s=Math.abs(Math.sin(t*13))*.7+Math.abs(Math.sin(t*7.3))*.35;A.mouthOpen=Math.max(A.mouthOpen,cl(s)*env);A.mouthForm+=.3*env;A.angleZ+=Math.sin(t*3)*3*env;break;}
+      case "happy":{A.mouthForm+=1*env;A.mouthOpen=Math.max(A.mouthOpen,.35*env);A.brow+=.6*env;A.wing+=Math.sin(t*16)*.9*env;A.breath+=Math.abs(Math.sin(t*9))*.8*env;A.angleZ+=Math.sin(t*6)*6*env;A.eyeL=A.eyeR=Math.min(A.eyeL,1-.35*env);break;}
+      case "flap":{A.wing+=Math.sin(t*20)*env;A.bodyX+=Math.sin(t*10)*1.5*env;break;}
+      case "nod":{A.angleY+=-Math.sin(t*Math.PI*2/L*2)*18*env;break;}
+      case "shake":{A.angleX+=Math.sin(t*Math.PI*2/L*2)*22*env;A.bodyX+=Math.sin(t*Math.PI*2/L*2)*-3*env;break;}
+      case "blink":{const o=Math.abs(Math.cos(Math.PI*t/L));A.eyeL=Math.min(A.eyeL,o);A.eyeR=Math.min(A.eyeR,o);break;}
+    }
+    if(t>=L)motions.splice(i,1);
+  }
+}
+function updateAuto(dt,t){
+  const follow=$("follow").checked, idle=$("idle").checked;
+  const A={};for(const k in DEF)A[k]=DEF[k][4];
+  // 視線
+  let tx=0,ty=0;
+  if(follow&&mouse.in){const h=worldToScreen(HEADC.x,HEADC.y+150);
+    tx=cl((mouse.x-h[0])/(cv.clientWidth*.35),-1,1);ty=cl((mouse.y-h[1])/(cv.clientHeight*.35),-1,1);}
+  else if(idle){if(t>lookNext){lookT={x:(Math.random()*2-1)*.6,y:(Math.random()*2-1)*.35};if(Math.random()<.35)lookT={x:0,y:0};lookNext=t+1.8+Math.random()*3;}tx=lookT.x;ty=lookT.y;}
+  const sm=1-Math.exp(-dt*(follow&&mouse.in?7:2.5));
+  auto._lx=(auto._lx||0)+(tx-(auto._lx||0))*sm; auto._ly=(auto._ly||0)+(ty-(auto._ly||0))*sm;
+  const ex=(auto._ex||0)+(tx-(auto._ex||0))*Math.min(1,sm*2.5), ey=(auto._ey||0)+(ty-(auto._ey||0))*Math.min(1,sm*2.5); auto._ex=ex;auto._ey=ey;
+  A.angleX=auto._lx*30;A.angleY=-auto._ly*30;A.angleZ=-auto._lx*auto._ly*12;
+  A.bodyX=auto._lx*4;A.eyeBX=ex;A.eyeBY=ey;
+  if(idle){
+    A.breath=(Math.sin(t*Math.PI*2/3.6)+1)/2;
+    A.angleZ+=Math.sin(t*.7)*2.2;A.bodyZ=Math.sin(t*.5+1)*1.6;
+    A.wing=Math.sin(t*2.2)*.12+(Math.sin(t*.37)>.92?Math.sin(t*18)*.5:0);
+    // 眨眼
+    if(blinkT<0&&t>blinkNext){blinkT=0;dblBlink=Math.random()<.2;}
+    if(blinkT>=0){blinkT+=dt;const d=.17;let o=blinkT<d*.4?1-blinkT/(d*.4):blinkT<d?(blinkT-d*.4)/(d*.6):1;
+      A.eyeL=A.eyeR=cl(o);
+      if(blinkT>=d){if(dblBlink){blinkT=0;dblBlink=false;}else{blinkT=-1;blinkNext=t+2+Math.random()*4;}}}
+  }
+  applyMotions(dt,A);
+  for(const k in DEF){const d=DEF[k];auto[k]=cl(A[k],d[2],d[3]);val[k]=manual[k]!==null?manual[k]:auto[k];}
+}
+
+/* ============================================================
+   視圖
+   ============================================================ */
+const view={cx:1024,cy:960,zoom:1};
+let dpr=1,scale=1;
+function resize(){dpr=Math.min(2,window.devicePixelRatio||1);cv.width=Math.round(cv.clientWidth*dpr);cv.height=Math.round(cv.clientHeight*dpr);}
+function fitScale(){return Math.min(cv.clientWidth/1600,cv.clientHeight/1920)*view.zoom;}
+function worldToScreen(x,y){const s=fitScale();return [(x-view.cx)*s+cv.clientWidth/2,(y-view.cy)*s+cv.clientHeight/2];}
+function screenToWorld(x,y){const s=fitScale();return [(x-cv.clientWidth/2)/s+view.cx,(y-cv.clientHeight/2)/s+view.cy];}
+
+/* ============================================================
+   繪製輔助
+   ============================================================ */
+const fbo={fb:null,tex:null,w:0,h:0}, maskFbo={fb:null,tex:null,w:0,h:0};
+function ensureFBO(fbo){
+  if(fbo.w===cv.width&&fbo.h===cv.height)return;
+  if(!fbo.fb){fbo.fb=gl.createFramebuffer();fbo.tex=gl.createTexture();}
+  gl.bindTexture(gl.TEXTURE_2D,fbo.tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,cv.width,cv.height,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo.fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,fbo.tex,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);fbo.w=cv.width;fbo.h=cv.height;
+}
+const quad={p:gl.createBuffer(),u:gl.createBuffer(),a:gl.createBuffer()};
+gl.bindBuffer(gl.ARRAY_BUFFER,quad.a);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([1,1,1,1]),gl.STATIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER,quad.p);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER,quad.u);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([0,0,1,0,0,1,1,1]),gl.STATIC_DRAW);
+function setView(){const s=fitScale();gl.uniform4f(uV,2*s/cv.clientWidth,-2*s/cv.clientHeight,-2*s*view.cx/cv.clientWidth,2*s*view.cy/cv.clientHeight);}
+function blendNormal(p){if(p.blend==="screen")gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_COLOR);else gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);}
+function partAlpha(p){
+  if(p.role==="mouthOpen")return ss(.04,.18,val.mouthOpen);
+  if(p.role==="mouth")return 1-ss(.1,.3,val.mouthOpen);
+  if(p.id===14)return val.cheek;
+  return 1;
+}
+function drawPart(p,useMask){
+  const a=partAlpha(p); if(a<=0)return;
+  gl.bindBuffer(gl.ARRAY_BUFFER,p.posBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,p.pos);gl.vertexAttribPointer(aP,2,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,p.vaBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,p.va);gl.vertexAttribPointer(aA,1,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,p.uvBuf);gl.vertexAttribPointer(aU,2,gl.FLOAT,false,0,0);
+  gl.bindTexture(gl.TEXTURE_2D,p.tex);gl.uniform1f(uA,a);gl.uniform4f(uC,0,0,0,0);gl.uniform1f(uMk,useMask?1:0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,p.idx);gl.drawElements(gl.TRIANGLES,p.ni,gl.UNSIGNED_SHORT,0);
+}
+
+/* ============================================================
+   主迴圈
+   ============================================================ */
+let last=0,fpsT=0,fpsN=0,uiT=0;
+function frame(ms){
+  const t=ms/1000, dt=Math.min(1/30,Math.max(1/240,t-(last||t-1/60))); last=t;
+  if(cv.width!==Math.round(cv.clientWidth*dpr)||cv.height!==Math.round(cv.clientHeight*dpr))resize();
+  updateAuto(dt,t); stepPhys(dt,$("phys").checked,t);
+  gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  setView();
+  const mesh=$("mesh").checked;
+  ensureFBO(fbo);ensureFBO(maskFbo);
+  for(const p of parts)deformPart(p);
+  // 1) 眼白畫進遮罩緩衝
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,null);gl.activeTexture(gl.TEXTURE0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,maskFbo.fb);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  for(const p of parts)if(EYE_MASK_IDS.has(p.id))drawPart(p,false);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,maskFbo.tex);gl.activeTexture(gl.TEXTURE0);
+  gl.uniform2f(uR,cv.width,cv.height);
+  // 2) 依序畫圖層
+  for(let i=0;i<parts.length;i++){
+    const p=parts[i];
+    const grouped=parts[i+1]&&parts[i+1].clip;
+    if(!grouped){blendNormal(p);drawPart(p,p.masked);continue;}
+    // 剪切遮罩群組：底圖 + 剪切圖層先畫到離屏緩衝，再合成回畫面
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo.fb);gl.clear(gl.COLOR_BUFFER_BIT);
+    blendNormal(p);drawPart(p,false);
+    let j=i+1;
+    while(j<parts.length&&parts[j].clip){const q=parts[j];
+      if(q.blend==="screen")gl.blendFuncSeparate(gl.DST_ALPHA,gl.ONE_MINUS_SRC_COLOR,gl.ZERO,gl.ONE);
+      else gl.blendFuncSeparate(gl.DST_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ZERO,gl.ONE);
+      drawPart(q,false);j++;}
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform4f(uV,1,1,0,0);gl.uniform1f(uA,1);gl.uniform4f(uC,0,0,0,0);gl.uniform1f(uMk,p.masked?1:0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quad.p);gl.vertexAttribPointer(aP,2,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quad.u);gl.vertexAttribPointer(aU,2,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quad.a);gl.vertexAttribPointer(aA,1,gl.FLOAT,false,0,0);
+    gl.bindTexture(gl.TEXTURE_2D,fbo.tex);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    setView();
+    i=j-1;
+  }
+  gl.uniform1f(uMk,0);
+  if(mesh){gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    for(const p of parts){const hue=HEAD_ROLES.has(p.role)?[.85,.25,.45,.22]:[.2,.45,.85,.22];
+      gl.uniform4f(uC,hue[0]*hue[3],hue[1]*hue[3],hue[2]*hue[3],hue[3]);
+      gl.bindBuffer(gl.ARRAY_BUFFER,p.posBuf);gl.vertexAttribPointer(aP,2,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,p.vaBuf);gl.vertexAttribPointer(aA,1,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,p.uvBuf);gl.vertexAttribPointer(aU,2,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,p.lidx);gl.drawElements(gl.LINES,p.nl,gl.UNSIGNED_SHORT,0);}
+  }
+  fpsN++;if(t-fpsT>1){$("fps").textContent=fpsN+" fps";fpsN=0;fpsT=t;}
+  if(t-uiT>.05){uiT=t;syncUI();}
+  requestAnimationFrame(frame);
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+function $(id){return document.getElementById(id)}
+const rows={};
+(function buildUI(){
+  const host=$("params");
+  for(const [g,list] of PARAMS){const h=document.createElement("h2");h.textContent=g;host.appendChild(h);
+    for(const [k,label,mn,mx,d] of list){
+      const r=document.createElement("div");r.className="row";
+      r.innerHTML=`<label title="${k}">${label}</label><input type="range" min="${mn}" max="${mx}" step="${(mx-mn)/200}" value="${d}"><output></output>`;
+      const inp=r.querySelector("input");
+      inp.addEventListener("input",()=>{manual[k]=+inp.value;r.classList.add("manual");});
+      r.querySelector("label").addEventListener("dblclick",()=>{manual[k]=null;r.classList.remove("manual");});
+      host.appendChild(r);rows[k]={r,inp,out:r.querySelector("output")};
+    }}
+})();
+function syncUI(){for(const k in rows){const R=rows[k];if(manual[k]===null&&document.activeElement!==R.inp)R.inp.value=val[k];R.out.textContent=(+val[k]).toFixed(Math.abs(DEF[k][3])>2?0:2);}}
+$("reset").onclick=()=>{for(const k in manual){manual[k]=null;rows[k].r.classList.remove("manual");}};
+$("bg").onchange=e=>{$("stage").className=e.target.value;};
+document.querySelectorAll("[data-motion]").forEach(b=>b.onclick=()=>motion(b.dataset.motion));
+
+// 滑鼠 / 觸控
+let drag=null;
+cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();mouse.x=e.clientX-r.left;mouse.y=e.clientY-r.top;mouse.in=true;
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>5)drag.moved=true;
+    if(drag.moved){const s=fitScale();view.cx=drag.cx-dx/s;view.cy=drag.cy-dy/s;}}});
+cv.addEventListener("pointerleave",()=>{mouse.in=false;});
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,cx:view.cx,cy:view.cy,moved:false};});
+cv.addEventListener("pointerup",e=>{if(drag&&!drag.moved){const r=cv.getBoundingClientRect();const w=screenToWorld(e.clientX-r.left,e.clientY-r.top);
+    if(Math.hypot(w[0]-HEADC.x,w[1]-HEADC.y)<HEADR)motion(Math.random()<.5?"happy":"talk");else if(w[1]>780&&w[1]<1900&&Math.abs(w[0]-1024)<560)motion("flap");}
+  drag=null;});
+cv.addEventListener("wheel",e=>{e.preventDefault();view.zoom=cl(view.zoom*Math.exp(-e.deltaY*.0012),.4,4);},{passive:false});
+cv.addEventListener("dblclick",()=>{view.cx=1024;view.cy=960;view.zoom=1;});
+window.addEventListener("resize",resize);
+resize();load();
+</script>
+</body>
+</html>
