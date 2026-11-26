@@ -624,7 +624,9 @@ CHAT_RULES = [
     (("吊",), "hang", "……倒過來。"),
     (("跳舞", "舞"), "dance", "……跳。"),
     (("彈", "琴", "音樂", "唱"), "harp", "……彈一首。"),
-    (("花束", "布偶", "玩偶", "娃娃", "花"), "plush", "……抱抱。"),
+    # 「收」要寫在抱抱前面，不然「收布偶／收花束」會誤觸發抱抱
+    (("收花束", "收布偶", "收起花束", "收起布偶", "收起", "收玩具"), "toys_off", "……收起來。"),
+    (("抱月光花", "抱花束", "抱布偶", "月光花", "花束", "布偶", "玩偶", "娃娃"), "plush", "……抱抱。"),
     (("星星", "接"), "stars", "……接星星。"),
     (("願", "許願", "流星", "祈禱"), "wish", "……願。"),
     (("換裝", "衣服", "穿"), "outfit", "……換衣服。"),
@@ -2885,7 +2887,7 @@ class Pet:
         s = self.rig.s
         plush = self.nearest_toy("plush")
         if not plush:
-            self.say("……花束呢？")
+            self.say("……月光花呢？")
             return
         for _tries in range(4):
             plush = self.nearest_toy("plush")
@@ -3879,10 +3881,15 @@ def run_app():
             root.after(300, lambda: main_menu("……你來了。"))
             return
         if name == "toys_off":
-            toybox.clear()
+            if pet.toys:
+                toybox.clear()
+                pet.say("……花束，收起來了。")
+            else:
+                pet.say("……沒有花束。")
             return
         if name == "toy_plush":
             toybox.add("plush")
+            pet.say("……花束。")
             return
         if name == "plush" and not any(tt.kind == "plush" for tt in pet.toys):
             toybox.add("plush")
@@ -3972,7 +3979,7 @@ def run_app():
                                           ("爬視窗", "climb"), ("跳下來", "jump_down"), ("種花", "plant"),
                                           ("跌倒", "trip"), ("雲端之夢", "game"), ("接星星", "stars"),
                                           ("跳舞", "dance"), ("彈豎琴", "harp"),
-                                          ("抱花束", "plush"), ("收花束", "toys_off"), ("許願", "wish"))):
+                                          ("抱月光花", "plush"), ("收花束", "toys_off"), ("許願", "wish"))):
             tk.Button(btns, text=label, command=(lambda a=act: do_action(a)),
                       bg="#17142a", fg="#e8e4ff",
                       activebackground="#2c2840", activeforeground="#ffffff", relief="flat", pady=0,
@@ -4212,7 +4219,7 @@ def run_app():
         def go(name):
             return lambda: (dlg_say("……好。", then=lambda: (dlg_close(), do_action(name))))
         dlg_say("……玩什麼？", [("跳舞", go("dance")), ("彈豎琴", go("harp")),
-                              ("抱花束", go("plush")), ("許願", go("wish")),
+                              ("抱月光花", go("plush")), ("許願", go("wish")),
                               ("算了", lambda: main_menu("……嗯。"))])
 
     def do_pat():
@@ -4476,10 +4483,10 @@ def run_app():
     menu.add_command(label="彈豎琴", command=do("harp"))
     menu.add_command(label="許願", command=do("wish"))
     toys_menu = tk.Menu(menu, tearoff=0)
-    toys_menu.add_command(label="拿出月光花花束", command=do("toy_plush"))
-    toys_menu.add_command(label="讓她抱花束", command=do("plush"))
+    toys_menu.add_command(label="拿出花束", command=do("toy_plush"))
+    toys_menu.add_command(label="讓她抱月光花", command=do("plush"))
     toys_menu.add_separator()
-    toys_menu.add_command(label="收起花束", command=lambda: toybox.clear())
+    toys_menu.add_command(label="收起花束", command=do("toys_off"))
     menu.add_cascade(label="花束", menu=toys_menu)
     menu.add_separator()
     more = tk.Menu(menu, tearoff=0)
